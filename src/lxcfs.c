@@ -23,6 +23,7 @@
 #include <sys/epoll.h>
 #include <sys/mount.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <linux/limits.h>
 
 #include "lxcfs_fuse.h"
@@ -33,7 +34,8 @@
 #include "memory_utils.h"
 #include "utils.h"
 
-#define PID_FILE "/lxcfs.pid"
+#define PID_FILE "/floral-lxcfs.pid"
+#define FLORAL_LXCFS_LIBRARY "libfloral-lxcfs.so"
 
 void *dlopen_handle;
 static char runtime_path[PATH_MAX] = DEFAULT_RUNTIME_PATH;
@@ -178,39 +180,40 @@ static void do_reload(bool reinit)
 		stop_loadavg();
 
 	if (dlopen_handle) {
-		lxcfs_info("Closed liblxcfs.so");
+		lxcfs_info("Closed %s", FLORAL_LXCFS_LIBRARY);
 		dlclose(dlopen_handle);
 	}
 
 	/* First try loading using ld.so */
 #ifdef RESOLVE_NOW
-	dlopen_handle = dlopen("liblxcfs.so", RTLD_NOW);
+	dlopen_handle = dlopen(FLORAL_LXCFS_LIBRARY, RTLD_NOW);
 #else
-	dlopen_handle = dlopen("liblxcfs.so", RTLD_LAZY);
+	dlopen_handle = dlopen(FLORAL_LXCFS_LIBRARY, RTLD_LAZY);
 #endif
 	if (dlopen_handle) {
-		lxcfs_debug("Opened liblxcfs.so");
+		lxcfs_debug("Opened %s", FLORAL_LXCFS_LIBRARY);
 		goto good;
 	}
 
 #ifdef LIBDIR
 	/* LIBDIR: autoconf will setup this MACRO. Default value is $PREFIX/lib */
-        ret = snprintf(lxcfs_lib_path, sizeof(lxcfs_lib_path), "%s/lxcfs/liblxcfs.so", LIBDIR);
+        ret = snprintf(lxcfs_lib_path, sizeof(lxcfs_lib_path), "%s/floral-lxcfs/%s", LIBDIR, FLORAL_LXCFS_LIBRARY);
 #else
-        ret = snprintf(lxcfs_lib_path, sizeof(lxcfs_lib_path), "/usr/local/lib/lxcfs/liblxcfs.so");
+        ret = snprintf(lxcfs_lib_path, sizeof(lxcfs_lib_path),
+		       "/usr/local/lib/floral-lxcfs/%s", FLORAL_LXCFS_LIBRARY);
 #endif
 	if (ret < 0 || (size_t)ret >= sizeof(lxcfs_lib_path))
 		log_exit("Failed to create path to open liblxcfs");
 
         dlopen_handle = dlopen(lxcfs_lib_path, RTLD_LAZY);
 	if (!dlopen_handle)
-		log_exit("%s - Failed to open liblxcfs.so at %s", dlerror(), lxcfs_lib_path);
+		log_exit("%s - Failed to open %s at %s", dlerror(), FLORAL_LXCFS_LIBRARY, lxcfs_lib_path);
 	else
 		lxcfs_debug("Opened %s", lxcfs_lib_path);
 
 good:
 	if (reinit && do_lxcfs_fuse_init() < 0) {
-		log_exit("Failed to initialize liblxcfs.so");
+		log_exit("Failed to initialize %s", FLORAL_LXCFS_LIBRARY);
 	}
 
 	if (loadavg_pid > 0)
@@ -753,8 +756,8 @@ const struct fuse_operations lxcfs_ops = {
 
 static void usage(void)
 {
-	lxcfs_info("Usage: lxcfs <directory>\n");
-	lxcfs_info("lxcfs is a FUSE-based proc, sys virtualizing filesystem\n");
+	lxcfs_info("Usage: floral-lxcfs [directory]\n");
+	lxcfs_info("floral-lxcfs is a FUSE-based proc and sys virtualizing filesystem\n");
 	lxcfs_info("Options :");
 	lxcfs_info("  -d, --debug          Run lxcfs with debugging enabled");
 	lxcfs_info("  -f, --foreground     Run lxcfs in the foreground");
@@ -762,13 +765,15 @@ static void usage(void)
 	lxcfs_info("  -l, --enable-loadavg Enable loadavg virtualization");
 	lxcfs_info("  -o                   Options to pass directly through fuse");
 	lxcfs_info("  -p, --pidfile=FILE   Path to use for storing lxcfs pid");
-	lxcfs_info("                       Default pidfile is %s/lxcfs.pid", DEFAULT_RUNTIME_PATH);
+	lxcfs_info("                       Default pidfile is %s%s", DEFAULT_RUNTIME_PATH, PID_FILE);
 	lxcfs_info("  -u, --disable-swap   Disable swap virtualization");
 	lxcfs_info("  -v, --version        Print lxcfs version");
 	lxcfs_info("  --enable-cfs         Enable CPU virtualization via CPU shares");
 	lxcfs_info("  --enable-pidfd       Use pidfd for process tracking");
 	lxcfs_info("  --runtime-dir=DIR    Path to use as the runtime directory.");
 	lxcfs_info("                       Default is %s", DEFAULT_RUNTIME_PATH);
+	lxcfs_info("  --device-profile=PATH Absolute device profile path inside the container.");
+	lxcfs_info("                       Default is %s", FLORAL_DEVICE_PROFILE_PATH);
 	exit(EXIT_FAILURE);
 }
 
@@ -807,6 +812,18 @@ static int set_pidfile(char *pidfile)
 	return move_fd(fd);
 }
 
+static int ensure_directory(const char *path)
+{
+	struct stat st;
+
+	if (mkdir(path, 0755) < 0 && errno != EEXIST)
+		return log_error(-1, "Failed to create directory %s: %m", path);
+	if (stat(path, &st) < 0 || !S_ISDIR(st.st_mode))
+		return log_error(-1, "Path is not a directory: %s", path);
+
+	return 0;
+}
+
 static const struct option long_options[] = {
 	{"debug",		no_argument,		0,	'd'	},
 	{"disable-swap",	no_argument,		0,	'u'	},
@@ -819,6 +836,7 @@ static const struct option long_options[] = {
 	{"enable-cfs",		no_argument,		0,	  0	},
 	{"enable-pidfd",	no_argument,		0,	  0	},
 	{"enable-psi-poll",	no_argument,		0,	  0	},
+	{"device-profile",	required_argument,	0,	  0	},
 
 	{"pidfile",		required_argument,	0,	'p'	},
 	{"runtime-dir",		required_argument,	0,	  0	},
@@ -879,6 +897,8 @@ int main(int argc, char *argv[])
 	char *const *new_argv;
 	struct lxcfs_opts *opts;
 	char *runtime_path_arg = NULL;
+	char *profile_path_arg = NULL;
+	const char *mountpoint;
 
 	opts = malloc(sizeof(struct lxcfs_opts));
 	if (opts == NULL) {
@@ -889,9 +909,16 @@ int main(int argc, char *argv[])
 	opts->swap_off = false;
 	opts->zswap_off = false;
 	opts->use_pidfd = true;
-	opts->use_cfs = false;
+	opts->use_cfs = true;
 	opts->psi_poll_on = false;
-	opts->version = 4;
+	opts->floral_mode = true;
+	opts->version = 5;
+	if (FLORAL_DEVICE_PROFILE_PATH[0] != '/' ||
+	    strlcpy(opts->floral_profile_path, FLORAL_DEVICE_PROFILE_PATH,
+		    sizeof(opts->floral_profile_path)) >= sizeof(opts->floral_profile_path)) {
+		lxcfs_error("Configured device profile path must be absolute and fit in PATH_MAX");
+		goto out;
+	}
 
 	while ((c = getopt_long(argc, argv, "dulfhvso:p:", long_options, &idx)) != -1) {
 		switch (c) {
@@ -904,6 +931,8 @@ int main(int argc, char *argv[])
 				opts->psi_poll_on = true;
 			else if (strcmp(long_options[idx].name, "runtime-dir") == 0)
 				runtime_path_arg = optarg;
+			else if (strcmp(long_options[idx].name, "device-profile") == 0)
+				profile_path_arg = optarg;
 			else
 				usage();
 			break;
@@ -950,20 +979,38 @@ int main(int argc, char *argv[])
 	new_argv = &argv[optind];
 	new_argc = argc - optind;
 
-	/* Older LXCFS versions printed help when used without any argument. */
-	if (new_argc == 0)
-		usage();
-
-	if (new_argc != 1) {
-		lxcfs_error("Missing mountpoint");
+	if (new_argc > 1) {
+		lxcfs_error("Expected zero or one mountpoint");
 		goto out;
 	}
+	mountpoint = new_argc == 1 ? new_argv[0] : FLORAL_LXCFSTARGETDIR;
 
 	if (runtime_path_arg) {
-		strlcpy(runtime_path, runtime_path_arg, sizeof(runtime_path));
+		if (runtime_path_arg[0] != '/' ||
+		    strlcpy(runtime_path, runtime_path_arg, sizeof(runtime_path)) >=
+			    sizeof(runtime_path)) {
+			lxcfs_error("Runtime path must be an absolute path shorter than %zu bytes",
+				    sizeof(runtime_path));
+			goto out;
+		}
 		lxcfs_info("runtime path set to %s", runtime_path);
 	}
-	strlcpy(opts->runtime_path, runtime_path, sizeof(opts->runtime_path));
+	if (strlcpy(opts->runtime_path, runtime_path, sizeof(opts->runtime_path)) >=
+	    sizeof(opts->runtime_path)) {
+		lxcfs_error("Configured runtime path is too long");
+		goto out;
+	}
+	if (profile_path_arg) {
+		if (profile_path_arg[0] != '/' ||
+		    strlcpy(opts->floral_profile_path, profile_path_arg,
+			    sizeof(opts->floral_profile_path)) >= sizeof(opts->floral_profile_path)) {
+			lxcfs_error("Device profile path must be absolute and shorter than %zu bytes",
+				    sizeof(opts->floral_profile_path));
+			goto out;
+		}
+	}
+	if (ensure_directory(runtime_path) || ensure_directory(mountpoint))
+		goto out;
 
 	fuse_argv[fuse_argc++] = argv[0];
 	if (debug)
@@ -1033,10 +1080,10 @@ int main(int argc, char *argv[])
 	 */
 
 	fuse_argv[fuse_argc++] = new_fuse_opts;
-	fuse_argv[fuse_argc++] = new_argv[0];
+	fuse_argv[fuse_argc++] = (char *)mountpoint;
 	fuse_argv[fuse_argc] = NULL;
 
-	lxcfs_info("Starting LXCFS at %s", argv[0]);
+	lxcfs_info("Starting Floral LXCFS at %s", mountpoint);
 
 	do_reload(false);
 

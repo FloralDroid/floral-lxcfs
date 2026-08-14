@@ -6,8 +6,11 @@ option('tests', type : 'boolean', value: 'false',
 option('mocks', type : 'boolean', value: 'false',
        description : 'enable CI-only features (mocks some things in LXCFS for CI/testing purposes)')
 
-option('runtime-path', type : 'string', value : '/run',
+option('runtime-path', type : 'string', value : '/run/floral-lxcfs',
        description : 'the runtime directory')
+
+option('device-profile-path', type : 'string', value : '/ipc/floral_stream/device.prop',
+       description : 'absolute device profile path inside each container')
 
 option('with-init-script', type : 'string', value : 'systemd',
        description : 'the runtime directory')

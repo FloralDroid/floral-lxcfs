@@ -1,4 +1,12 @@
-# lxcfs
+# floral-lxcfs
+
+`floral-lxcfs` is the FloralDroid-specific LXCFS branch. It keeps upstream
+cgroup-based resource virtualization and adds per-container Android CPU
+identity views. Its executable, shared module, service, runtime directory and
+mountpoint are separate from an official LXCFS installation.
+
+See [doc/floral-lxcfs.md](doc/floral-lxcfs.md) for the supported profile keys
+and Docker integration.
 
 ## Introduction
 LXCFS is a small FUSE filesystem written with the intention of making Linux
@@ -32,11 +40,11 @@ only had access to cgroups underneath it's own cgroups and thus provided
 additional safety. For systems without support for cgroup namespaces `LXCFS`
 will still provide this feature but it is mostly considered deprecated.
 
-## Upgrading `LXCFS` without restart
+## Upgrading `floral-lxcfs` without restart
 
-`LXCFS` is split into a shared library (a libtool module, to be precise)
-`liblxcfs` and a simple binary `lxcfs`. When upgrading to a newer version of
-`LXCFS` the `lxcfs` binary will not be restarted. Instead it will detect that
+`floral-lxcfs` is split into a shared library (a libtool module, to be precise)
+`libfloral-lxcfs` and a simple binary `floral-lxcfs`. When upgrading to a newer version of
+`floral-lxcfs` the binary will not be restarted. Instead it will detect that
 a new version of the shared library is available and will reload it using
 `dlclose(3)` and `dlopen(3)`. This design was chosen so that the fuse main loop
 that `LXCFS` uses will not need to be restarted. If it were then all containers
@@ -47,9 +55,8 @@ To force a reload of the shared library at the next possible instance simply
 send `SIGUSR1` to the pid of the running `LXCFS` process. This can be as simple
 as doing:
 
-    rm /usr/lib64/lxcfs/liblxcfs.so # MUST to delete the old library file first
-    cp liblxcfs.so /usr/lib64/lxcfs/liblxcfs.so # to place new library file
-    kill -s USR1 $(pidof lxcfs) # reload
+    sudo meson install -C build
+    sudo systemctl reload floral-lxcfs
 
 ### musl
 
@@ -66,8 +73,8 @@ containers making use of it.
 In order to build LXCFS install fuse and the fuse development headers according
 to your distro. LXCFS requires `fuse3`:
 
-    git clone git://github.com/lxc/lxcfs
-    cd lxcfs
+    git clone https://github.com/FloralDroid/lxcfs-android.git floral-lxcfs
+    cd floral-lxcfs
     meson setup -Dinit-script=systemd --prefix=/usr build/
     meson compile -C build/
     sudo meson install -C build/
@@ -79,48 +86,46 @@ For example, to enable ASAN and UBSAN:
     meson compile -C build/
 
 ## Usage
-The recommended command to run lxcfs is:
+The recommended command is:
 
-    sudo mkdir -p /var/lib/lxcfs
-    sudo lxcfs /var/lib/lxcfs
+    sudo systemctl enable --now floral-lxcfs
+
+For a manual foreground run, the mountpoint argument is optional:
+
+    sudo floral-lxcfs -f
 
 A container runtime wishing to use `LXCFS` should then bind mount the
 approriate files into the correct places on container startup.
 
 ### LXC
-In order to use lxcfs with systemd-based containers, you can either use
-LXC 1.1 in which case it should work automatically, or otherwise, copy
-the `lxc.mount.hook` and `lxc.reboot.hook` files (once built) from this tree to
-`/usr/share/lxcfs`, make sure it is executable, then add the
-following lines to your container configuration:
-```
-lxc.mount.auto = cgroup:mixed
-lxc.autodev = 1
-lxc.kmsg = 0
-lxc.include = /usr/share/lxc/config/common.conf.d/00-lxcfs.conf
-```
+
+This branch intentionally does not install the official LXCFS LXC hooks or
+configuration snippets. An existing official LXCFS installation continues to
+serve ordinary LXC containers from `/var/lib/lxcfs`; Floral is mounted at
+`/var/lib/floral-lxcfs` and must be selected explicitly by the Android
+container launcher.
 
 ### Using with Docker
 
+```bash
+docker run --rm -it \
+      --cpus 8 \
+      --memory 6g \
+      --mount type=bind,src=/srv/floral/device.prop,dst=/ipc/floral_stream/device.prop,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/proc/cpuinfo,dst=/proc/cpuinfo,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/proc/meminfo,dst=/proc/meminfo,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/proc/stat,dst=/proc/stat,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
+      ubuntu:24.04 /bin/bash
 ```
-docker run -it -m 256m --memory-swap 256m \
-      -v /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \
-      -v /var/lib/lxcfs/proc/diskstats:/proc/diskstats:rw \
-      -v /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \
-      -v /var/lib/lxcfs/proc/stat:/proc/stat:rw \
-      -v /var/lib/lxcfs/proc/swaps:/proc/swaps:rw \
-      -v /var/lib/lxcfs/proc/uptime:/proc/uptime:rw \
-      -v /var/lib/lxcfs/proc/slabinfo:/proc/slabinfo:rw \
-      -v /var/lib/lxcfs/proc/pressure/io:/proc/pressure/io:rw \
-      -v /var/lib/lxcfs/proc/pressure/cpu:/proc/pressure/cpu:rw \
-      -v /var/lib/lxcfs/proc/pressure/memory:/proc/pressure/memory:rw \
-      -v /var/lib/lxcfs/sys/devices/system/cpu:/sys/devices/system/cpu:rw \
-      ubuntu:18.04 /bin/bash
- ```
+
+`--cpuset-cpus` is not required. Floral derives the visible CPU count from the
+container's cgroup CPU quota and cpuset, while memory continues to come from
+the cgroup memory limit.
 
  In a system with swap enabled, the parameter "-u" can be used to set all values in "meminfo" that refer to the swap to 0.
 
- sudo lxcfs -u /var/lib/lxcfs
+ sudo floral-lxcfs -u
 
 ## Swap handling
 If you noticed LXCFS not showing any SWAP in your container despite

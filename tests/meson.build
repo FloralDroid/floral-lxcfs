@@ -145,3 +145,17 @@ test_programs += executable(
     include_directories: config_include,
     install: false,
     build_by_default: want_tests != false)
+
+test_floral_profile = executable(
+    'test-floral-profile',
+    files(
+        'test-floral-profile.c',
+        '../src/cpuset_parse.c',
+        '../src/floral/profile.c',
+        '../src/floral/view.c'),
+    dependencies: threads,
+    include_directories: config_include,
+    install: false,
+    build_by_default: want_tests != false)
+
+test('floral-profile', test_floral_profile)

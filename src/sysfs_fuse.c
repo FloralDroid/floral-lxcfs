@@ -32,12 +32,182 @@
 #include "sysfs_fuse.h"
 
 #include "bindings.h"
+#include "floral/profile.h"
+#include "floral/view.h"
 #include "memory_utils.h"
 #include "cgroups/cgroup.h"
 #include "lxcfs_fuse_compat.h"
 #include "utils.h"
 
 static off_t get_sysfile_size(const char *which);
+
+struct floral_sys_context {
+	struct floral_cpu_profile profile;
+	int cpu_count;
+};
+
+static bool load_floral_sys_context(struct floral_sys_context *context)
+{
+	__do_free char *cg = NULL, *cpu_cg = NULL, *cpuset = NULL;
+	struct fuse_context *fc = fuse_get_context();
+	struct lxcfs_opts *opts;
+	pid_t initpid;
+	int cfs_count = 0;
+
+	if (!fc || !context)
+		return false;
+	opts = fc->private_data;
+	if (!lxcfs_has_floral_profile(opts))
+		return false;
+
+	initpid = lookup_initpid_in_store(fc->pid);
+	if (initpid <= 1 || is_shared_pidns(initpid))
+		initpid = fc->pid;
+	if (floral_profile_load(initpid, opts, &context->profile) ||
+	    !floral_profile_has_cpu_identity(&context->profile))
+		return false;
+
+	cg = get_pid_cgroup(initpid, "cpuset");
+	cpu_cg = get_pid_cgroup(initpid, "cpu");
+	if (cg) {
+		prune_init_slice(cg);
+		cpuset = get_cpuset(cg);
+	}
+	if (cpu_cg)
+		prune_init_slice(cpu_cg);
+	if (cg && cpu_cg && opts->use_cfs)
+		cfs_count = max_cpu_count(cg, cpu_cg);
+
+	context->cpu_count = floral_visible_cpu_count(&context->profile, cpuset, cfs_count);
+	return true;
+}
+
+static int floral_sys_getattr(const char *path, struct stat *sb)
+{
+	struct floral_sys_context context;
+	enum floral_sys_node_type type;
+	struct timespec now;
+	char contents[4096];
+	ssize_t length;
+
+	if (!load_floral_sys_context(&context))
+		return 0;
+	if (!floral_sys_manages_path(path))
+		return 0;
+	type = floral_sys_node_type(&context.profile, context.cpu_count, path);
+	if (type == FLORAL_SYS_NONE)
+		return -ENOENT;
+	if (clock_gettime(CLOCK_REALTIME, &now) < 0)
+		return -EINVAL;
+
+	memset(sb, 0, sizeof(*sb));
+	sb->st_uid = sb->st_gid = 0;
+	sb->st_atim = sb->st_mtim = sb->st_ctim = now;
+	sb->st_nlink = type == FLORAL_SYS_DIRECTORY ? 2 : 1;
+	sb->st_mode = type == FLORAL_SYS_DIRECTORY ? S_IFDIR | 00555 : S_IFREG | 00444;
+	if (type == FLORAL_SYS_FILE) {
+		length = floral_render_sys_file(&context.profile, context.cpu_count,
+						path, contents, sizeof(contents));
+		if (length < 0)
+			return (int)length;
+		sb->st_size = length;
+	}
+
+	return 1;
+}
+
+static int floral_sys_open(const char *path, struct fuse_file_info *fi,
+			   enum floral_sys_node_type expected)
+{
+	__do_free struct file_info *info = NULL;
+	struct floral_sys_context context;
+
+	if (!load_floral_sys_context(&context) || !floral_sys_manages_path(path))
+		return 0;
+	if (floral_sys_node_type(&context.profile, context.cpu_count, path) != expected)
+		return -ENOENT;
+
+	info = zalloc(sizeof(*info));
+	if (!info)
+		return -ENOMEM;
+	info->type = expected == FLORAL_SYS_DIRECTORY ?
+		LXC_TYPE_SYS_DEVICES_SYSTEM_CPU_SUBDIR : LXC_TYPE_SYS_DEVICES_SYSTEM_CPU_SUBFILE;
+	if (expected == FLORAL_SYS_FILE) {
+		info->buflen = 4096;
+		info->buf = zalloc(info->buflen);
+		if (!info->buf)
+			return -ENOMEM;
+		info->size = info->buflen;
+	}
+
+	fi->fh = PTR_TO_UINT64(move_ptr(info));
+	return 1;
+}
+
+struct floral_sys_emit_context {
+	fuse_fill_dir_t filler;
+	void *buffer;
+};
+
+static int floral_sys_emit(void *opaque, const char *name)
+{
+	struct floral_sys_emit_context *context = opaque;
+
+	return dir_filler(context->filler, context->buffer, name, 0);
+}
+
+static int floral_sys_readdir(const char *path, void *buf, fuse_fill_dir_t filler)
+{
+	struct floral_sys_context context;
+	struct floral_sys_emit_context emit_context = {
+		.filler = filler,
+		.buffer = buf,
+	};
+
+	if (!load_floral_sys_context(&context) || !floral_sys_manages_path(path))
+		return 0;
+	if (floral_sys_node_type(&context.profile, context.cpu_count, path) != FLORAL_SYS_DIRECTORY)
+		return -ENOENT;
+
+	if (floral_sys_list_directory(&context.profile, context.cpu_count, path,
+				      floral_sys_emit, &emit_context))
+		return -ENOENT;
+	return 1;
+}
+
+static int floral_sys_read(const char *path, char *buf, size_t size,
+			   off_t offset, struct fuse_file_info *fi, bool *handled)
+{
+	struct floral_sys_context context;
+	struct file_info *info = INTTYPE_TO_PTR(fi->fh);
+	ssize_t length;
+
+	*handled = false;
+	if (!load_floral_sys_context(&context) || !floral_sys_manages_path(path))
+		return 0;
+	*handled = true;
+	if (floral_sys_node_type(&context.profile, context.cpu_count, path) != FLORAL_SYS_FILE)
+		return -ENOENT;
+	if (!info || info->type != LXC_TYPE_SYS_DEVICES_SYSTEM_CPU_SUBFILE)
+		return -EIO;
+
+	if (!info->cached) {
+		length = floral_render_sys_file(&context.profile, context.cpu_count,
+						path, info->buf, info->buflen);
+		if (length < 0)
+			return (int)length;
+		info->size = (int)length;
+		info->cached = 1;
+	}
+	if (offset < 0 || offset > info->size)
+		return -EINVAL;
+	length = info->size - offset;
+	if ((size_t)length > size)
+		length = size;
+	memcpy(buf, info->buf + offset, length);
+	return (int)length;
+}
+
 static int do_cpuset_read(char *cg, char *cpu_cg, char *buf, size_t buflen)
 {
         __do_free char *cpuset = NULL;
@@ -249,6 +419,9 @@ __lxcfs_fuse_ops int sys_getattr(const char *path, struct stat *sb)
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	ret = floral_sys_getattr(path, sb);
+	if (ret)
+		return ret < 0 ? ret : 0;
 
 	if (!liblxcfs_can_use_sys_cpu())
 		return sys_getattr_legacy(path, sb);
@@ -359,6 +532,11 @@ __lxcfs_fuse_ops int sys_readdir(const char *path, void *buf,
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	{
+		int ret = floral_sys_readdir(path, buf, filler);
+		if (ret)
+			return ret < 0 ? ret : 0;
+	}
 
 	if (!liblxcfs_can_use_sys_cpu())
 		return sys_readdir_legacy(path, buf, filler, offset, fi);
@@ -474,6 +652,11 @@ __lxcfs_fuse_ops int sys_open(const char *path, struct fuse_file_info *fi)
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	{
+		int ret = floral_sys_open(path, fi, FLORAL_SYS_FILE);
+		if (ret)
+			return ret < 0 ? ret : 0;
+	}
 
 	if (!liblxcfs_can_use_sys_cpu())
 		return sys_open_legacy(path, fi);
@@ -523,6 +706,11 @@ __lxcfs_fuse_ops int sys_opendir(const char *path, struct fuse_file_info *fi)
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	{
+		int ret = floral_sys_open(path, fi, FLORAL_SYS_DIRECTORY);
+		if (ret)
+			return ret < 0 ? ret : 0;
+	}
 
 	if (strcmp(path, "/sys") == 0) {
 		type = LXC_TYPE_SYS;
@@ -585,8 +773,24 @@ static int sys_access_legacy(const char *path, int mask)
 
 __lxcfs_fuse_ops int sys_access(const char *path, int mask)
 {
+	struct floral_sys_context context;
+
 	if (!liblxcfs_functional())
 		return -EIO;
+	if (load_floral_sys_context(&context)) {
+		enum floral_sys_node_type type =
+			floral_sys_node_type(&context.profile, context.cpu_count, path);
+
+		if (floral_sys_manages_path(path)) {
+			if (type == FLORAL_SYS_NONE)
+				return -ENOENT;
+			if (mask & W_OK)
+				return -EACCES;
+			if ((mask & X_OK) && type != FLORAL_SYS_DIRECTORY)
+				return -EACCES;
+			return 0;
+		}
+	}
 
 	if (!liblxcfs_can_use_sys_cpu())
 		return sys_access_legacy(path, mask);
@@ -624,6 +828,12 @@ __lxcfs_fuse_ops int sys_read(const char *path, char *buf, size_t size,
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	if (f->type == LXC_TYPE_SYS_DEVICES_SYSTEM_CPU_SUBFILE) {
+		bool handled;
+		int ret = floral_sys_read(path, buf, size, offset, fi, &handled);
+		if (handled)
+			return ret;
+	}
 
 	if (!liblxcfs_can_use_sys_cpu())
 		return sys_read_legacy(path, buf, size, offset, fi);

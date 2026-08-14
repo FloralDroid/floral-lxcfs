@@ -34,6 +34,8 @@
 
 #include "bindings.h"
 #include "cpuset_parse.h"
+#include "floral/profile.h"
+#include "floral/view.h"
 #include "cgroups/cgroup.h"
 #include "cgroups/cgroup_utils.h"
 #include "memory_utils.h"
@@ -567,7 +569,7 @@ int max_cpu_count(const char *cpuset_cg, const char *cpu_cg)
 
 int cpuview_proc_stat(const char *cg, const char *cpu_cg, const char *cpuset,
 		      struct cpuacct_usage *cg_cpu_usage, int cg_cpu_usage_size,
-		      FILE *f, char *buf, size_t buf_size)
+		      FILE *f, char *buf, size_t buf_size, int cpu_limit)
 {
 	__do_free char *line = NULL;
 	__do_free struct cpuacct_usage *diff = NULL;
@@ -656,6 +658,8 @@ int cpuview_proc_stat(const char *cg, const char *cpu_cg, const char *cpuset,
 	max_cpus = max_cpu_count(cg, cpu_cg);
 	if (max_cpus > cpu_cnt || !max_cpus)
 		max_cpus = cpu_cnt;
+	if (cpu_limit > 0 && cpu_limit < max_cpus)
+		max_cpus = cpu_limit;
 
 	/* takes lock pthread_mutex_lock(&node->lock) */
 	stat_node = find_or_create_proc_stat_node(cg_cpu_usage, nprocs, cg);
@@ -973,6 +977,7 @@ int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 	bool use_view;
 	char *cache;
 	size_t cache_size;
+	struct floral_cpu_profile floral_profile;
 
 	if (offset) {
 		size_t left;
@@ -1018,6 +1023,36 @@ int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 		use_view = false;
 	if (use_view)
 		max_cpus = max_cpu_count(cg, cpu_cg);
+
+	if (floral_profile_load(initpid, opts, &floral_profile) == 0 &&
+	    floral_profile_has_cpu_identity(&floral_profile)) {
+		ssize_t rendered;
+		int visible_cpus;
+		size_t required_size;
+
+		visible_cpus = floral_visible_cpu_count(&floral_profile, cpuset, max_cpus);
+		required_size = 1024 + (size_t)visible_cpus *
+			(sizeof(floral_profile.cpu_features) + 384);
+		if ((size_t)d->buflen < required_size) {
+			char *new_buffer = realloc(d->buf, required_size);
+			if (!new_buffer)
+				return -ENOMEM;
+			d->buf = new_buffer;
+			d->buflen = (int)required_size;
+		}
+
+		rendered = floral_render_cpuinfo(&floral_profile, visible_cpus,
+					 d->buf, d->buflen);
+		if (rendered < 0)
+			return rendered;
+
+		d->cached = 1;
+		d->size = (int)rendered;
+		if ((size_t)rendered > size)
+			rendered = size;
+		memcpy(buf, d->buf, rendered);
+		return rendered;
+	}
 
 	f = fopen_cached("/proc/cpuinfo", "re", &fopen_cache);
 	if (!f)

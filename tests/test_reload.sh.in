@@ -11,7 +11,7 @@ topdir="{{LXCFS_BUILD_ROOT}}"
 testdir=$(mktemp -t -d libs.XXX)
 installdir=$(mktemp -t -d libs.XXX)
 pidfile=$(mktemp)
-libdir="${installdir}/{{LIBDIR}}"
+libdir="${installdir}/{{LIBDIR}}/floral-lxcfs"
 bindir=${installdir}/usr/bin
 lxcfspid=-1
 FAILED=1
@@ -29,15 +29,15 @@ cleanup() {
   rm -f /tmp/lxcfs-iwashere
   rm -f "${pidfile}"
   if [ ${FAILED} -eq 1 ]; then
-    echo "liblxcfs.so reload test FAILED"
+    echo "Floral LXCFS module reload test FAILED"
   else
-    echo "liblxcfs.so reload test PASSED"
+    echo "Floral LXCFS module reload test PASSED"
   fi
 }
 
 trap cleanup EXIT HUP INT TERM
 
-echo "==> Installing lxcfs to temporary path"
+echo "==> Installing Floral LXCFS to temporary path"
 cd "$topdir"
 DESTDIR=${installdir} meson install
 if [ -n "${LD_LIBRARY_PATH:-}" ]; then
@@ -46,8 +46,8 @@ else
     export LD_LIBRARY_PATH="${libdir}"
 fi
 
-echo "==> Spawning lxcfs"
-"${bindir}"/lxcfs -p "${pidfile}" "${testdir}" &
+echo "==> Spawning Floral LXCFS"
+"${bindir}"/floral-lxcfs -p "${pidfile}" "${testdir}" &
 
 lxcfspid=$!
 
@@ -60,12 +60,12 @@ done
 
 rm -f /tmp/lxcfs-iwashere
 
-echo "==> Testing that lxcfs is functional"
+echo "==> Testing that Floral LXCFS is functional"
 cat "${testdir}"/proc/uptime
 
 [ ! -f /tmp/lxcfs-iwashere ]
-rm -f "${libdir}"/liblxcfs.so* "${libdir}"/liblxcfs.la
-cp "$topdir/liblxcfstest.so" "${libdir}"/liblxcfs.so
+rm -f "${libdir}"/libfloral-lxcfs.so
+cp "$topdir/liblxcfstest.so" "${libdir}"/libfloral-lxcfs.so
 
 kill -USR1 ${lxcfspid}
 sleep 1

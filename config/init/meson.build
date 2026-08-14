@@ -4,9 +4,9 @@ if 'systemd' in init_script
     systemd = dependency('systemd')
     systemd_system_unit_dir = systemd.get_pkgconfig_variable('systemdsystemunitdir')
     systemd_service = custom_target(
-        'lxcfs.service',
-        input: 'systemd/lxcfs.service.in',
-        output: 'lxcfs.service',
+        'floral-lxcfs.service',
+        input: 'systemd/floral-lxcfs.service.in',
+        output: 'floral-lxcfs.service',
         command: [
             meson_render_jinja2,
             config_h,
@@ -18,13 +18,13 @@ if 'systemd' in init_script
 endif
 
 if 'upstart' in init_script
-        install_data('upstart/lxcfs.conf', install_dir: join_paths(sysconfdir, 'init'))
+        error('The isolated Floral branch currently provides only floral-lxcfs.service')
 endif
 
 if 'openrc' in init_script
-        install_data('sysvinit/lxcfs', install_dir: join_paths(sysconfdir, 'rc.d/init.d'))
+        error('The isolated Floral branch currently provides only floral-lxcfs.service')
 endif
 
 if 'sysvinit' in init_script
-        install_data('sysvinit/lxcfs', install_dir: join_paths(sysconfdir, 'init.d'))
+        error('The isolated Floral branch currently provides only floral-lxcfs.service')
 endif

@@ -8,7 +8,7 @@ set -eu
 
 grep -F 'cgroup2 cgroup2' /proc/1/mountinfo | grep -qF ' /sys/fs/cgroup '
 
-# Run lxcfs testsuite
+# Run the Floral LXCFS testsuite.
 LXCFSDIR="$(mktemp -d)"
 export LXCFSDIR
 pidfile=$(mktemp)
@@ -25,7 +25,7 @@ cleanup() {
 	if [ "$LXCFSPID" -ne -1 ]; then
 		kill -TERM "$LXCFSPID"
 	fi
-	if [ "${LXCFSDIR}" != "/var/lib/lxcfs" ]; then
+	if [ "${LXCFSDIR}" != "/var/lib/floral-lxcfs" ]; then
 		umount -l "${LXCFSDIR}"
 		rmdir "${LXCFSDIR}"
 	fi
@@ -39,7 +39,7 @@ cleanup() {
 }
 
 TESTCASE="setup"
-lxcfs="{{LXCFS_BUILD_ROOT}}/lxcfs"
+lxcfs="{{LXCFS_BUILD_ROOT}}/floral-lxcfs"
 
 if [ -x ${lxcfs} ]; then
 	if [ -n "${LD_LIBRARY_PATH:-}" ]; then
@@ -52,10 +52,10 @@ if [ -x ${lxcfs} ]; then
 	LXCFSPID=$!
 else
 	UNSHARE=0
-	LXCFSPID=$(cat "{{DEFAULT_RUNTIME_PATH}}/lxcfs.pid")
-	echo "=> Re-using host lxcfs"
+	LXCFSPID=$(cat "{{DEFAULT_RUNTIME_PATH}}/floral-lxcfs.pid")
+	echo "=> Re-using host Floral LXCFS"
 	rmdir "$LXCFSDIR"
-	export LXCFSDIR=/var/lib/lxcfs
+	export LXCFSDIR=/var/lib/floral-lxcfs
 fi
 
 trap cleanup EXIT HUP INT TERM
@@ -64,7 +64,7 @@ count=1
 while ! mountpoint -q "$LXCFSDIR"; do
 	sleep 1s
 	if [ $count -gt 5 ]; then
-		echo "lxcfs failed to start"
+		echo "Floral LXCFS failed to start"
 		false
 	fi
 	count=$((count+1))
@@ -91,11 +91,9 @@ TESTCASE="meminfo hierarchy"
 UNSHARE=0 RUNTEST "${dirname}"/test_meminfo_hierarchy.sh
 TESTCASE="cpuset hierarchy"
 UNSHARE=0 RUNTEST "${dirname}"/test_cpuset_hierarchy.sh
-if [ -n "${lxcfs_enable_cfs:-}" ]; then
-	TESTCASE="cpu cfs hierarchy"
-	UNSHARE=0 RUNTEST "${dirname}"/test_cpu_cfs_hierarchy.sh
-fi
-TESTCASE="liblxcfs reloading"
+TESTCASE="cpu cfs hierarchy"
+UNSHARE=0 RUNTEST "${dirname}"/test_cpu_cfs_hierarchy.sh
+TESTCASE="Floral LXCFS module reloading"
 UNSHARE=0 RUNTEST "${dirname}"/test_reload.sh
 TESTCASE="SIGUSR2 virtualization mode switching"
 echo "==> Switching to non-virtualization mode"

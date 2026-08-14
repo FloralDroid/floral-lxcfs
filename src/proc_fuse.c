@@ -37,6 +37,8 @@
 #include "cgroups/cgroup.h"
 #include "cgroups/cgroup_utils.h"
 #include "cpuset_parse.h"
+#include "floral/profile.h"
+#include "floral/view.h"
 #include "lxcfs_fuse_compat.h"
 #include "memory_utils.h"
 #include "proc_loadavg.h"
@@ -1072,6 +1074,7 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 	int cg_cpu_usage_size = 0;
 	bool use_view;
 	int max_cpus = 0;
+	struct floral_cpu_profile floral_profile;
 
 	if (offset) {
 		size_t left;
@@ -1118,6 +1121,17 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 	cpuset = get_cpuset(cg);
 	if (!cpuset)
 		return 0;
+	if (cgroup_ops->can_use_cpuview(cgroup_ops) && opts && opts->use_cfs)
+		use_view = true;
+	else
+		use_view = false;
+	if (use_view)
+		max_cpus = max_cpu_count(cg, cpu_cg);
+	if (floral_profile_load(initpid, opts, &floral_profile) == 0 &&
+	    floral_profile_has_cpu_identity(&floral_profile)) {
+		max_cpus = floral_visible_cpu_count(&floral_profile, cpuset, max_cpus);
+		use_view = true;
+	}
 
 	f = fopen_cached("/proc/stat", "re", &fopen_cache);
 	if (!f)
@@ -1136,19 +1150,12 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 		if (cgroup_ops->can_use_cpuview(cgroup_ops) && opts && opts->use_cfs) {
 			total_len = cpuview_proc_stat(cg, cpu_cg, cpuset, cg_cpu_usage,
 						      cg_cpu_usage_size, f,
-						      d->buf, d->buflen);
+						      d->buf, d->buflen, max_cpus);
 			goto out;
 		}
 	} else {
 		lxcfs_v("proc_stat_read failed to read from cpuacct, falling back to the host's /proc/stat");
 	}
-
-	if (cgroup_ops->can_use_cpuview(cgroup_ops) && opts && opts->use_cfs)
-		use_view = true;
-	else
-		use_view = false;
-	if (use_view)
-		max_cpus = max_cpu_count(cg, cpu_cg);
 
 	while (getline(&line, &linelen, f) != -1) {
 		ssize_t l;

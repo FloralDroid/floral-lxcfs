@@ -1,0 +1,122 @@
+# Floral LXCFS
+
+Floral LXCFS is an optional FUSE layer for Android containers. It is not a
+replacement for the NativeBridge or AOSP identity layers:
+
+- Floral LXCFS supplies mountable `/proc` and `/sys` views.
+- NativeBridge must supply translated-process ABI, HWCAP, CPUID and `uname`
+  behavior; those interfaces are outside FUSE.
+- AOSP supplies Java `Build`, ABI and `os.arch` values.
+
+## Isolation
+
+The Floral branch installs these private names:
+
+| Item | Path |
+| --- | --- |
+| Executable | `/usr/bin/floral-lxcfs` |
+| FUSE module | `/usr/lib/<triplet>/floral-lxcfs/libfloral-lxcfs.so` |
+| Service | `floral-lxcfs.service` |
+| Runtime state | `/run/floral-lxcfs` |
+| FUSE mount | `/var/lib/floral-lxcfs` |
+
+It does not install `/usr/bin/lxcfs`, `liblxcfs.so`, `lxcfs.service`, or the
+official LXC mount hooks. Official LXCFS and ordinary LXC containers therefore
+remain independent.
+
+## Build And Install
+
+```bash
+meson setup build \
+    --prefix=/usr \
+    -Dinit-script=systemd \
+    -Druntime-path=/run/floral-lxcfs
+meson compile -C build
+sudo meson install -C build
+sudo systemctl daemon-reload
+sudo systemctl enable --now floral-lxcfs
+```
+
+The daemon enables CFS quota detection by default. With no mountpoint argument
+it uses `/var/lib/floral-lxcfs`.
+
+## Automatic Resource Views
+
+No extra profile fields are needed for resource enforcement:
+
+- Docker `--cpus` is read from the container CPU cgroup. A separate
+  `--cpuset-cpus` assignment is optional, not required.
+- Docker `--memory` is read from the container memory cgroup and is reflected
+  by the upstream `/proc/meminfo` virtualization.
+- If both quota and cpuset limits exist, the smaller effective CPU count wins.
+- If a known device CPU template has fewer cores, the template count is the
+  final upper bound so `/proc/cpuinfo`, `/proc/stat`, and CPU sysfs agree.
+
+`--memory-swap` is only needed when a separate swap policy is required; it is
+not needed to make the memory limit visible.
+
+## Device Profile
+
+Some ARM identity data cannot be inferred from an x86 host. The daemon reads
+the existing per-container profile at:
+
+```text
+/ipc/floral_stream/device.prop
+```
+
+The path is resolved beneath the requesting container's root. Every directory
+component is opened without following symlinks, the final object must be a
+regular file, and the file is limited to 8 KiB. A different in-container path
+can be selected with `--device-profile=/absolute/path` or at build time with
+`-Ddevice-profile-path=/absolute/path`.
+
+Floral LXCFS ignores profile keys owned by AOSP, while AOSP ignores keys owned
+by other profile consumers. For the current OPPO Find X6 Pro profile,
+`version` and `soc_model` are sufficient to select the built-in CPU view. The
+remaining CPU keys are optional overrides:
+
+```properties
+version=1
+soc_model=SM8550
+cpu_vendor=Qualcomm
+cpu_model=ARMv8 Processor rev 1 (v8l)
+cpu_features=fp,asimd,evtstrm,aes,pmull,sha1,sha2,crc32,atomics,fphp,asimdhp,cpuid,asimdrdm,lrcpc,dcpop,asimddp
+cpu_feature_view=sm8550
+cpu_cores=auto
+```
+
+`soc_model=SM8550` automatically selects the same built-in template as
+`cpu_feature_view=sm8550`; the explicit view field is useful when the public
+SoC name and the CPU topology template differ. `cpu_vendor`, `cpu_model`, and
+`cpu_features` override presentation text only. `cpu_cores` defaults to
+`auto`.
+
+If the file is absent, invalid, or has no CPU identity fields, Floral falls
+back to upstream LXCFS behavior instead of inventing an identity.
+
+## Docker Integration
+
+Assume the complete device profile is stored at `/srv/floral/device.prop`:
+
+```bash
+docker run --rm -it \
+    --cpus 8 \
+    --memory 6g \
+    --mount type=bind,src=/srv/floral/device.prop,dst=/ipc/floral_stream/device.prop,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/proc/cpuinfo,dst=/proc/cpuinfo,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/proc/meminfo,dst=/proc/meminfo,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/proc/stat,dst=/proc/stat,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/proc/swaps,dst=/proc/swaps,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/proc/uptime,dst=/proc/uptime,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
+    redroid/redroid:12.0.0-latest
+```
+
+The profile bind mount is the same file AOSP already consumes. There is no
+generated `/opt/floral/device.prop` and no standalone `floral-lxcfs-profile`
+service.
+
+The SM8550 view synthesizes ARM processor records, an eight-core topology,
+cluster frequencies, scheduler capacity, and cache directories. Cgroup limits
+can reduce the visible core count, but the profile never increases the actual
+container quota.

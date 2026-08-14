@@ -1,0 +1,18 @@
+[Unit]
+Description=Floral FUSE filesystem for Android containers
+ConditionVirtualization=!container
+Documentation=man:floral-lxcfs(1)
+
+[Service]
+OOMScoreAdjust=-1000
+ExecStartPre=/bin/mkdir -p {{FLORAL_LXCFSTARGETDIR}}
+ExecStartPre=/bin/mkdir -p {{DEFAULT_RUNTIME_PATH}}
+ExecStart={{BINDIR}}/floral-lxcfs {{FLORAL_LXCFSTARGETDIR}}
+KillMode=process
+Restart=on-failure
+ExecStopPost=-/bin/umount {{FLORAL_LXCFSTARGETDIR}}
+Delegate=yes
+ExecReload=/bin/kill -USR1 $MAINPID
+
+[Install]
+WantedBy=multi-user.target

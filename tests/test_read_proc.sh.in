@@ -4,10 +4,10 @@
 set -eu
 [ -n "${DEBUG:-}" ] && set -x
 
-DIR=${LXCFSDIR:-/var/lib/lxcfs}
+DIR=${LXCFSDIR:-/var/lib/floral-lxcfs}
 
 if ! mountpoint -q "$DIR"; then
-    echo "lxcfs isn't mounted on ${DIR}"
+    echo "Floral LXCFS isn't mounted on ${DIR}"
     exit 1
 fi
 

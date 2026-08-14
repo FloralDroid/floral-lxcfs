@@ -2,7 +2,7 @@
 
 # Project.
 project(
-    'lxcfs',
+    'floral-lxcfs',
     'c',
     version: '7.0.0',
     license: 'LGPLv2+',
@@ -45,6 +45,7 @@ prefixdir = get_option('prefix')
 bindir = join_paths(prefixdir, get_option('bindir'))
 libdir = join_paths(prefixdir, get_option('libdir'))
 lxcfsdir = join_paths(libdir, 'lxcfs')
+floral_lxcfsdir = join_paths(libdir, 'floral-lxcfs')
 sysconfdir = join_paths(prefixdir, get_option('sysconfdir'))
 runtimepath = join_paths(prefixdir, get_option('runtime-path'))
 localstatedir = join_paths('/', get_option('localstatedir'))
@@ -58,6 +59,7 @@ conf.set_quoted('BINDIR', bindir)
 conf.set_quoted('LIBDIR', libdir)
 conf.set_quoted('LOCALSTATEDIR', localstatedir)
 conf.set_quoted('DEFAULT_RUNTIME_PATH', runtimepath)
+conf.set_quoted('FLORAL_DEVICE_PROFILE_PATH', get_option('device-profile-path'))
 conf.set_quoted('SYSCONFDIR', sysconfdir)
 
 conf.set_quoted('LXCCONFDIR', lxcconfdir)
@@ -65,6 +67,7 @@ conf.set_quoted('LXCFS_BUILD_ROOT', project_build_root)
 conf.set_quoted('LXCFSSHAREDIR', lxcfssharedir)
 conf.set_quoted('LXCFS_SOURCE_ROOT', project_source_root)
 conf.set_quoted('LXCFSTARGETDIR', join_paths(localstatedir, 'lib/lxcfs'))
+conf.set_quoted('FLORAL_LXCFSTARGETDIR', join_paths(localstatedir, 'lib/floral-lxcfs'))
 
 # Custom configuration.
 init_script = get_option('init-script')
@@ -178,8 +181,8 @@ add_project_arguments('-include', 'config.h', language: 'c')
 
 # Binary.
 lxcfs_sources = files('src/lxcfs.c', 'src/utils.c')
-lxcfs = executable(
-    'lxcfs',
+floral_lxcfs = executable(
+    'floral-lxcfs',
     lxcfs_sources,
     dependencies: [
         threads,
@@ -201,6 +204,10 @@ liblxcfs_sources = files(
     'src/cgroups/cgroup_utils.h',
     'src/cpuset_parse.c',
     'src/cpuset_parse.h',
+    'src/floral/profile.c',
+    'src/floral/profile.h',
+    'src/floral/view.c',
+    'src/floral/view.h',
     'src/lxcfs.c',
     'src/lxcfs_fuse.h',
     'src/lxcfs_fuse_compat.h',
@@ -234,11 +241,11 @@ if want_mocks == true
 endif
 
 liblxcfs = shared_module(
-    'lxcfs',
+    'floral-lxcfs',
     liblxcfs_sources,
     dependencies: liblxcfs_common_dependencies,
     install: true,
-    install_dir: lxcfsdir,
+    install_dir: floral_lxcfsdir,
     c_args: liblxcfs_cargs)
 
 # Tests.
@@ -253,19 +260,6 @@ if want_tests == true
         c_args: liblxcfstest_cargs)
 endif
 
-# RPM spec.
-lxcfs_spec = custom_target(
-    'lxcfs.spec',
-    build_by_default: true,
-    input: 'lxcfs.spec.in',
-    output: 'lxcfs.spec',
-    command: [
-        meson_render_jinja2,
-        config_h,
-        '@INPUT@',
-        '@OUTPUT@',
-    ])
-
 # Man pages
 if want_docs == true
     help2man = find_program('help2man')
@@ -276,9 +270,9 @@ if want_docs == true
        '--opt-include=docs/lxcfs.man.add',
        '--no-info',
     ]
-    custom_target('lxcfs.1',
-        output: 'lxcfs.1',
-        command: [help2man, help2man_opts, '--output=@OUTPUT@', lxcfs],
+    custom_target('floral-lxcfs.1',
+        output: 'floral-lxcfs.1',
+        command: [help2man, help2man_opts, '--output=@OUTPUT@', floral_lxcfs],
         install: true,
         install_dir: join_paths(lxcmandir, 'man1'))
 endif
@@ -286,7 +280,6 @@ endif
 
 # Include sub-directories.
 subdir('config/init')
-subdir('share')
 subdir('tests')
 
 # Build overview.
@@ -303,6 +296,7 @@ status = [
     'sysconf directory:		@0@'.format(sysconfdir),
     'lxc conf directory:		@0@'.format(lxcconfdir),
     'lxcfs directory:		@0@'.format(lxcfsdir),
+    'floral-lxcfs directory:	@0@'.format(floral_lxcfsdir),
     'lxcfs shared directory:	@0@'.format(lxcfssharedir),
     'lxcfs build root directory:	@0@'.format(project_build_root),
     'lxcfs source root directory:	@0@'.format(project_source_root),

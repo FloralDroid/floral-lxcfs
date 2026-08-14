@@ -1,0 +1,23 @@
+# Complete device identity example for OPPO Find X6 Pro (PGEM10).
+version=1
+brand=OPPO
+manufacturer=OPPO
+model=Find X6 Pro
+device=PGEM10
+product=PGEM10
+board=kalama
+soc_manufacturer=Qualcomm
+soc_model=SM8550
+gpu_vendor=Qualcomm
+gpu_model=Adreno (TM) 740
+build_id=SQ1D.220205.004
+build_display=PGEM10-userdebug 12 SQ1D.220205.004 test-keys
+version_release=12
+security_patch=2022-02-05
+
+# Floral LXCFS uses these fields.
+cpu_vendor=Qualcomm
+cpu_model=ARMv8 Processor rev 1 (v8l)
+cpu_features=fp,asimd,evtstrm,aes,pmull,sha1,sha2,crc32,atomics,fphp,asimdhp,cpuid,asimdrdm,lrcpc,dcpop,asimddp
+cpu_feature_view=sm8550
+cpu_cores=auto

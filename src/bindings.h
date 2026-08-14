@@ -145,6 +145,9 @@ struct lxcfs_opts {
 	char runtime_path[PATH_MAX];
 	bool zswap_off;
 	bool psi_poll_on;
+	// As of opts version 5.
+	bool floral_mode;
+	char floral_profile_path[PATH_MAX];
 };
 
 typedef enum lxcfs_opt_t {
@@ -195,6 +198,12 @@ static inline bool lxcfs_has_opt(struct lxcfs_opts *opts, lxcfs_opt_t opt)
 	}
 
 	return false;
+}
+
+static inline bool lxcfs_has_floral_profile(const struct lxcfs_opts *opts)
+{
+	return opts && opts->version >= 5 && opts->floral_mode &&
+	       opts->floral_profile_path[0] == '/';
 }
 
 static inline int install_signal_handler(int signo,

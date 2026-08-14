@@ -13,7 +13,7 @@ if [ -z "${LXCFS_TEST_IN_CT:-}" ]; then
 	[ "$(nproc)" -ge "4" ] || { echo "Error: nproc < 4" >&2; exit 1; }
 fi
 
-LXCFSDIR=${LXCFSDIR:-/var/lib/lxcfs}
+LXCFSDIR=${LXCFSDIR:-/var/lib/floral-lxcfs}
 
 #
 # We are going to make the following cgroup tree:
