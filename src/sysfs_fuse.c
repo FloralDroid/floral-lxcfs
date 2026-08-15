@@ -147,27 +147,55 @@ static int floral_sys_open(const char *path, struct fuse_file_info *fi,
 struct floral_sys_emit_context {
 	fuse_fill_dir_t filler;
 	void *buffer;
+	const struct floral_cpu_profile *profile;
+	int cpu_count;
+	const char *path;
 };
 
 static int floral_sys_emit(void *opaque, const char *name)
 {
 	struct floral_sys_emit_context *context = opaque;
+	struct stat st;
+	char child[PATH_MAX];
+	int length;
+	enum floral_sys_node_type type = FLORAL_SYS_FILE;
 
-	return dir_filler(context->filler, context->buffer, name, 0);
+	/*
+	 * Bionic's get_nprocs_conf() counts cpuN entries by d_type.  Supplying
+	 * NULL here makes every synthetic entry DT_UNKNOWN, which reports zero
+	 * configured processors even though the files themselves are readable.
+	 */
+	memset(&st, 0, sizeof(st));
+	st.st_mode = S_IFREG | 0444;
+	if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+		type = FLORAL_SYS_DIRECTORY;
+	} else if ((length = snprintf(child, sizeof(child), "%s/%s", context->path,
+						      name)) >= 0 &&
+			   (size_t)length < sizeof(child)) {
+		type = floral_sys_node_type(context->profile, context->cpu_count, child);
+	}
+	if (type == FLORAL_SYS_DIRECTORY)
+		st.st_mode = S_IFDIR | 0555;
+
+	return DIR_FILLER(context->filler, context->buffer, name, &st, 0);
 }
 
 static int floral_sys_readdir(const char *path, void *buf, fuse_fill_dir_t filler)
 {
 	struct floral_sys_context context;
-	struct floral_sys_emit_context emit_context = {
-		.filler = filler,
-		.buffer = buf,
-	};
+	struct floral_sys_emit_context emit_context;
 
 	if (!load_floral_sys_context(&context) || !floral_sys_manages_path(path))
 		return 0;
 	if (floral_sys_node_type(&context.profile, context.cpu_count, path) != FLORAL_SYS_DIRECTORY)
 		return -ENOENT;
+	emit_context = (struct floral_sys_emit_context){
+		.filler = filler,
+		.buffer = buf,
+		.profile = &context.profile,
+		.cpu_count = context.cpu_count,
+		.path = path,
+	};
 
 	if (floral_sys_list_directory(&context.profile, context.cpu_count, path,
 				      floral_sys_emit, &emit_context))

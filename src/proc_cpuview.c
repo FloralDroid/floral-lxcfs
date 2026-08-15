@@ -975,6 +975,8 @@ int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 	bool am_printing = false, firstline = true, is_s390x = false;
 	int curcpu = -1, cpu, max_cpus = 0;
 	bool use_view;
+	bool use_floral_profile;
+	int floral_profile_ret;
 	char *cache;
 	size_t cache_size;
 	struct floral_cpu_profile floral_profile;
@@ -1004,17 +1006,23 @@ int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 	pid_t initpid = lookup_initpid_in_store(fc->pid);
 	if (initpid <= 1 || is_shared_pidns(initpid))
 		initpid = fc->pid;
+	floral_profile_ret = floral_profile_load(initpid, opts, &floral_profile);
+	use_floral_profile = floral_profile_ret == 0 &&
+		floral_profile_has_cpu_identity(&floral_profile);
 
 	cg = get_pid_cgroup(initpid, "cpuset");
-	if (!cg)
+	if (!cg && !use_floral_profile)
 		return read_file_fuse("proc/cpuinfo", buf, size, d);
-	prune_init_slice(cg);
+	if (cg)
+		prune_init_slice(cg);
 	cpu_cg = get_pid_cgroup(initpid, "cpu");
-	if (!cpu_cg)
+	if (!cpu_cg && !use_floral_profile)
 		return read_file_fuse("proc/cpuinfo", buf, size, d);
-	prune_init_slice(cpu_cg);
-	cpuset = get_cpuset(cg);
-	if (!cpuset)
+	if (cpu_cg)
+		prune_init_slice(cpu_cg);
+	if (cg)
+		cpuset = get_cpuset(cg);
+	if (!cpuset && !use_floral_profile)
 		return 0;
 
 	if (cgroup_ops->can_use_cpuview(cgroup_ops) && opts && opts->use_cfs)
@@ -1024,8 +1032,7 @@ int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 	if (use_view)
 		max_cpus = max_cpu_count(cg, cpu_cg);
 
-	if (floral_profile_load(initpid, opts, &floral_profile) == 0 &&
-	    floral_profile_has_cpu_identity(&floral_profile)) {
+	if (use_floral_profile) {
 		ssize_t rendered;
 		int visible_cpus;
 		size_t required_size;
