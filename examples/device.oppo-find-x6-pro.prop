@@ -12,8 +12,17 @@ gpu_vendor=Qualcomm
 gpu_model=Adreno (TM) 740
 build_id=SQ1D.220205.004
 build_display=PGEM10-userdebug 12 SQ1D.220205.004 test-keys
+build_description=PGEM10-user 12 SQ1D.220205.004 103837 test-keys
+build_flavor=PGEM10-userdebug
 version_release=12
 security_patch=2022-02-05
+kernel_release=5.10.66-android12-9
+kernel_version=#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022
+memory_type=LPDDR5X
+memory_frequency=4200MHz
+memory_channel=16-bit Quad channel
+serial=PGEM10FLORAL0001
+hardware_revision=EVT1
 
 # Floral LXCFS uses these fields.
 cpu_vendor=Qualcomm

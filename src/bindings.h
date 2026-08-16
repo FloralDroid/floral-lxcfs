@@ -82,14 +82,26 @@ enum lxcfs_virt_t {
 
 	LXC_TYPE_PROC_VMSTAT,
 #define LXC_TYPE_PROC_VMSTAT_PATH "/proc/vmstat"
+
+	LXC_TYPE_PROC_BUDDYINFO,
+#define LXC_TYPE_PROC_BUDDYINFO_PATH "/proc/buddyinfo"
+
+	LXC_TYPE_PROC_VERSION,
+#define LXC_TYPE_PROC_VERSION_PATH "/proc/version"
+
+	LXC_TYPE_PROC_SYS,
+	LXC_TYPE_PROC_SYS_KERNEL,
+	LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE,
+#define LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE_PATH "/proc/sys/kernel/osrelease"
 	LXC_TYPE_MAX,
 };
 
 /* Macros below used to check the class from the file types above */
 #define LXCFS_TYPE_CGROUP(type) (type >= LXC_TYPE_CGDIR && type <= LXC_TYPE_CGFILE)
 #define LXCFS_TYPE_PROC(type) ((type >= LXC_TYPE_PROC_MEMINFO && type <= LXC_TYPE_PROC_SLABINFO) || \
-							   (type >= LXC_TYPE_PROC && type <= LXC_TYPE_PROC_PRESSURE_MEMORY) || \
-							   type == LXC_TYPE_PROC_ZONEINFO || type == LXC_TYPE_PROC_VMSTAT)
+			       (type >= LXC_TYPE_PROC && type <= LXC_TYPE_PROC_PRESSURE_MEMORY) ||  \
+			       (type >= LXC_TYPE_PROC_ZONEINFO && type <= LXC_TYPE_PROC_BUDDYINFO) || \
+			       (type >= LXC_TYPE_PROC_VERSION && type <= LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE))
 #define LXCFS_TYPE_SYS(type) (type >= LXC_TYPE_SYS && type <= LXC_TYPE_SYS_DEVICES_SYSTEM_CPU_ONLINE)
 #define LXCFS_TYPE_OK(type) (type >= LXC_TYPE_CGDIR && type < LXC_TYPE_MAX)
 
@@ -158,14 +170,13 @@ struct lxcfs_opts {
 };
 
 typedef enum lxcfs_opt_t {
-	LXCFS_SWAP_ON		= 0,
-	LXCFS_PIDFD_ON		= 1,
-	LXCFS_CFS_ON		= 2,
-	LXCFS_ZSWAP_ON		= 3,
-	LXCFS_PSI_POLL_ON	= 4,
-	LXCFS_OPTS_MAX		= LXCFS_PSI_POLL_ON,
+	LXCFS_SWAP_ON = 0,
+	LXCFS_PIDFD_ON = 1,
+	LXCFS_CFS_ON = 2,
+	LXCFS_ZSWAP_ON = 3,
+	LXCFS_PSI_POLL_ON = 4,
+	LXCFS_OPTS_MAX = LXCFS_PSI_POLL_ON,
 } lxcfs_opt_t;
-
 
 extern pid_t lookup_initpid_in_store(pid_t qpid);
 extern void prune_init_slice(char *cg);
@@ -217,8 +228,8 @@ static inline int install_signal_handler(int signo,
 					 void (*handler)(int, siginfo_t *, void *))
 {
 	struct sigaction action = {
-	    .sa_flags = SA_SIGINFO,
-	    .sa_sigaction = handler,
+		.sa_flags = SA_SIGINFO,
+		.sa_sigaction = handler,
 	};
 
 	return sigaction(signo, &action, NULL);

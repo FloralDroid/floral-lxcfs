@@ -24,13 +24,17 @@ such as:
 /proc/swaps
 /proc/uptime
 /proc/slabinfo
+/proc/buddyinfo
 /proc/vmstat
 /proc/zoneinfo
+/proc/version
+/proc/sys/kernel/osrelease
 /proc/pressure/io
 /proc/pressure/cpu
 /proc/pressure/memory
 /sys/devices/system/cpu/online
 /sys/devices/system/node/node0/meminfo
+/sys/block/zram0
 ```
 
 are container aware such that the values displayed (e.g. in `/proc/uptime`)
@@ -119,6 +123,7 @@ docker run --rm -it \
       --mount type=bind,src=/var/lib/floral-lxcfs/proc/meminfo,dst=/proc/meminfo,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/proc/stat,dst=/proc/stat,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/block,dst=/sys/block,readonly \
       ubuntu:24.04 /bin/bash
 ```
 
@@ -127,6 +132,12 @@ Quota alone is sufficient for LXCFS, but the kernel-generated
 `/proc/self/status` only reflects a real cpuset. The
 [`examples/run-redroid.sh`](examples/run-redroid.sh) launcher selects the
 requested number of CPUs automatically when that view must also agree.
+CPU usage in /proc/stat comes from the container cgroup, using cpu.stat on
+cgroup v2 and the legacy cpuacct counters on cgroup v1. Docker stats also uses
+the cgroup accounting, while its percentage denominator remains Docker's own
+host/online-CPU calculation. /sys/block/zram0 is a read-only synthetic
+capacity view derived from the container swap budget; it is not a host zram
+passthrough.
 
  In a system with swap enabled, the parameter "-u" can be used to set all values in "meminfo" that refer to the swap to 0.
 

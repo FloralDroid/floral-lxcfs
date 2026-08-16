@@ -29,6 +29,8 @@ extern int proc_cpuinfo_read(char *buf, size_t size, off_t offset,
 			     struct fuse_file_info *fi);
 extern int read_cpuacct_usage_all(char *cg, char *cpuset,
 				  struct cpuacct_usage **return_usage, int *size);
+extern int read_cpu_cgroup_usage(char *cg, char *cpuset, int visible_cpus,
+				 struct cpuacct_usage **return_usage, int *size);
 extern bool init_cpuview(void);
 extern void free_cpuview(void);
 extern int max_cpu_count(const char *cpuset_cg, const char *cpu_cg);

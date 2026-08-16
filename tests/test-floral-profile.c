@@ -24,7 +24,9 @@ static const char profile_data[] =
 	"cpu_model=ARMv8 Processor rev 1 (v8l)\n"
 	"cpu_features=fp,asimd,aes,crc32\n"
 	"cpu_feature_view=sm8550\n"
-	"cpu_cores=auto\n";
+	"cpu_cores=auto\n"
+	"kernel_release=5.10.66-android12-9-g123456789abc\n"
+	"kernel_version=#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022\n";
 
 static void test_parser_and_cpuinfo(void)
 {
@@ -38,6 +40,7 @@ static void test_parser_and_cpuinfo(void)
 	assert(floral_profile_parse(data, &profile) == 0);
 	assert(floral_profile_has_cpu_identity(&profile));
 	assert(strcmp(profile.soc_model, "SM8550") == 0);
+	assert(floral_profile_has_kernel_identity(&profile));
 
 	count = floral_visible_cpu_count(&profile, "0-79", 8);
 	assert(count == 8);
@@ -49,6 +52,21 @@ static void test_parser_and_cpuinfo(void)
 	assert(strstr(output, "CPU part\t: 0xd4e\n"));
 	assert(strstr(output, "Hardware\t: SM8550\n"));
 	assert(!strstr(output, "Intel"));
+
+	length = floral_render_kernel_identity(&profile, "/proc/version", output,
+					       sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output,
+		      "Linux version 5.10.66-android12-9-g123456789abc "
+		      "#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022\n") == 0);
+
+	length = floral_render_kernel_identity(&profile,
+					       "/proc/sys/kernel/osrelease", output,
+					       sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "5.10.66-android12-9-g123456789abc\n") == 0);
 
 	assert(floral_visible_cpu_count(&profile, "0-79", 4) == 4);
 }
@@ -70,37 +88,51 @@ static void test_sysfs_view(void)
 	assert(floral_sys_manages_path("/sys/devices/system/cpu/vulnerabilities"));
 	assert(floral_sys_manages_path("/sys/devices/system/node/node0/meminfo"));
 	assert(!floral_sys_manages_path("/sys/devices/system/memory"));
+	assert(floral_sys_manages_path("/sys/block"));
+	assert(floral_sys_node_type(&profile, 8, "/sys/block") ==
+	       FLORAL_SYS_DIRECTORY);
+	assert(floral_sys_node_type(&profile, 8, "/sys/block/zram0") ==
+	       FLORAL_SYS_DIRECTORY);
+	assert(floral_sys_node_type(&profile, 8, "/sys/block/zram0/disksize") ==
+	       FLORAL_SYS_FILE);
 	assert(floral_sys_node_type(&profile, 8, "/sys/devices/system/node/node0") ==
 	       FLORAL_SYS_DIRECTORY);
 
 	length = floral_render_sys_file(&profile, 8,
-		"/sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq",
-		output, sizeof(output));
+					"/sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq",
+					output, sizeof(output));
 	assert(length > 0);
 	output[length] = '\0';
 	assert(strcmp(output, "3200000\n") == 0);
 
 	length = floral_render_sys_file(&profile, 8,
-		"/sys/devices/system/cpu/cpu0/cache/index3/size",
-		output, sizeof(output));
+					"/sys/devices/system/cpu/cpu0/cache/index3/size",
+					output, sizeof(output));
 	assert(length > 0);
 	output[length] = '\0';
 	assert(strcmp(output, "8192K\n") == 0);
 
 	length = floral_render_sys_file(&profile, 80,
-		"/sys/devices/system/cpu/cpu0/topology/package_cpus",
-		output, sizeof(output));
+					"/sys/devices/system/cpu/cpu0/topology/package_cpus",
+					output, sizeof(output));
 	assert(length > 0);
 	output[length] = '\0';
 	assert(strcmp(output, "0000ffff,ffffffff,ffffffff\n") == 0);
 
 	length = floral_render_sys_file_with_memory(&profile, 4, 4194304, 3145728,
-		"/sys/devices/system/node/node0/meminfo", output, sizeof(output));
+						    "/sys/devices/system/node/node0/meminfo", output, sizeof(output));
 	assert(length > 0);
 	output[length] = '\0';
 	assert(strstr(output, "Node 0 MemTotal:        4194304 kB\n"));
 	assert(strstr(output, "Node 0 MemFree:         3145728 kB\n"));
 	assert(strstr(output, "Node 0 MemUsed:         1048576 kB\n"));
+
+	length = floral_render_sys_file_with_memory_and_swap(
+			&profile, 4, 4194304, 3145728, 2097152, 1024,
+			"/sys/block/zram0/mm_stat", output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "1048576 1048576 1048576 0 0 0\n") == 0);
 }
 
 static void test_container_profile_load(void)
@@ -119,9 +151,10 @@ static void test_container_profile_load(void)
 	       (ssize_t)(sizeof(profile_data) - 1));
 	assert(close(fd) == 0);
 	assert(strlcpy(opts.floral_profile_path, path,
-		      sizeof(opts.floral_profile_path)) < sizeof(opts.floral_profile_path));
+		       sizeof(opts.floral_profile_path)) < sizeof(opts.floral_profile_path));
 	assert(floral_profile_load(getpid(), &opts, &profile) == 0);
 	assert(strcmp(profile.cpu_feature_view, "sm8550") == 0);
+	assert(strcmp(profile.kernel_release, "5.10.66-android12-9-g123456789abc") == 0);
 	assert(unlink(path) == 0);
 }
 

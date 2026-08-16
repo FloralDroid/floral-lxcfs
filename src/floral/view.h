@@ -15,7 +15,9 @@
 int floral_visible_cpu_count(const struct floral_cpu_profile *profile,
 			     const char *cpuset, int cfs_count);
 ssize_t floral_render_cpuinfo(const struct floral_cpu_profile *profile,
-			     int cpu_count, char *buffer, size_t size);
+			      int cpu_count, char *buffer, size_t size);
+ssize_t floral_render_kernel_identity(const struct floral_cpu_profile *profile,
+				      const char *path, char *buffer, size_t size);
 bool floral_sys_manages_path(const char *path);
 
 enum floral_sys_node_type {
@@ -37,6 +39,12 @@ ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 ssize_t floral_render_sys_file_with_memory(const struct floral_cpu_profile *profile,
 					   int cpu_count, uint64_t memory_total_kb,
 					   uint64_t memory_free_kb, const char *path,
+					   char *buffer, size_t size);
+ssize_t floral_render_sys_file_with_memory_and_swap(
+					   const struct floral_cpu_profile *profile,
+					   int cpu_count, uint64_t memory_total_kb,
+					   uint64_t memory_free_kb, uint64_t swap_total_kb,
+					   uint64_t swap_used_kb, const char *path,
 					   char *buffer, size_t size);
 
 #endif /* __LXCFS_FLORAL_VIEW_H */

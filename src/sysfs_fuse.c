@@ -46,6 +46,8 @@ struct floral_sys_context {
 	int cpu_count;
 	uint64_t memory_total_kb;
 	uint64_t memory_free_kb;
+	uint64_t swap_total_kb;
+	uint64_t swap_used_kb;
 };
 
 static bool load_floral_sys_context(struct floral_sys_context *context)
@@ -53,15 +55,19 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 	__do_free char *cg = NULL, *cpu_cg = NULL, *cpuset = NULL,
 		 *memory_cg = NULL, *memory_limit_string = NULL,
 		 *memory_usage_string = NULL;
+	__do_free char *memory_swap_limit_string = NULL,
+		 *memory_swap_usage_string = NULL;
 	struct fuse_context *fc = fuse_get_context();
 	struct lxcfs_opts *opts;
 	struct sysinfo host = {};
 	uint64_t host_total = 0, host_free = 0, memory_limit = 0, memory_usage = 0;
+	uint64_t memory_swap_limit = 0, memory_swap_usage = 0;
 	pid_t initpid;
 	int cfs_count = 0;
 
 	if (!fc || !context)
 		return false;
+	memset(context, 0, sizeof(*context));
 	opts = fc->private_data;
 	if (!lxcfs_has_floral_profile(opts))
 		return false;
@@ -101,6 +107,16 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 						   &memory_usage_string) >= 0 &&
 		    memory_usage_string)
 			safe_uint64(memory_usage_string, &memory_usage, 10);
+		if (lxcfs_has_opt(opts, LXCFS_SWAP_ON) &&
+		    cgroup_ops->get_memory_swap_max(cgroup_ops, memory_cg,
+						    &memory_swap_limit_string) >= 0 &&
+		    memory_swap_limit_string)
+			safe_uint64(memory_swap_limit_string, &memory_swap_limit, 10);
+		if (lxcfs_has_opt(opts, LXCFS_SWAP_ON) &&
+		    cgroup_ops->get_memory_swap_current(cgroup_ops, memory_cg,
+							&memory_swap_usage_string) >= 0 &&
+		    memory_swap_usage_string)
+			safe_uint64(memory_swap_usage_string, &memory_swap_usage, 10);
 	}
 	if (!memory_limit || (host_total && memory_limit > host_total))
 		memory_limit = host_total;
@@ -109,6 +125,19 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 	context->memory_total_kb = memory_limit / 1024;
 	context->memory_free_kb = memory_limit ? (memory_limit - memory_usage) / 1024 :
 		host_free / 1024;
+	if (lxcfs_has_opt(opts, LXCFS_SWAP_ON)) {
+		if (pure_unified_layout(cgroup_ops)) {
+			context->swap_total_kb = memory_swap_limit / 1024;
+			context->swap_used_kb = memory_swap_usage / 1024;
+		} else {
+			context->swap_total_kb = memory_swap_limit > memory_limit ?
+				(memory_swap_limit - memory_limit) / 1024 : 0;
+			context->swap_used_kb = memory_swap_usage > memory_usage ?
+				(memory_swap_usage - memory_usage) / 1024 : 0;
+		}
+		if (context->swap_used_kb > context->swap_total_kb)
+			context->swap_used_kb = context->swap_total_kb;
+	}
 	return true;
 }
 
@@ -136,9 +165,18 @@ static int floral_sys_getattr(const char *path, struct stat *sb)
 	sb->st_nlink = type == FLORAL_SYS_DIRECTORY ? 2 : 1;
 	sb->st_mode = type == FLORAL_SYS_DIRECTORY ? S_IFDIR | 00555 : S_IFREG | 00444;
 	if (type == FLORAL_SYS_FILE) {
-		length = floral_render_sys_file_with_memory(
-				&context.profile, context.cpu_count, context.memory_total_kb,
-				context.memory_free_kb, path, contents, sizeof(contents));
+		if (strncmp(path, "/sys/block/zram0/",
+			    STRLITERALLEN("/sys/block/zram0/")) == 0) {
+			length = floral_render_sys_file_with_memory_and_swap(
+					&context.profile, context.cpu_count,
+					context.memory_total_kb, context.memory_free_kb,
+					context.swap_total_kb, context.swap_used_kb,
+					path, contents, sizeof(contents));
+		} else {
+			length = floral_render_sys_file_with_memory(
+					&context.profile, context.cpu_count, context.memory_total_kb,
+					context.memory_free_kb, path, contents, sizeof(contents));
+		}
 		if (length < 0)
 			return (int)length;
 		sb->st_size = length;
@@ -251,9 +289,10 @@ static int floral_sys_read(const char *path, char *buf, size_t size,
 		return -EIO;
 
 	if (!info->cached) {
-		length = floral_render_sys_file_with_memory(
+		length = floral_render_sys_file_with_memory_and_swap(
 				&context.profile, context.cpu_count, context.memory_total_kb,
-				context.memory_free_kb, path, info->buf, info->buflen);
+				context.memory_free_kb, context.swap_total_kb,
+				context.swap_used_kb, path, info->buf, info->buflen);
 		if (length < 0)
 			return (int)length;
 		info->size = (int)length;

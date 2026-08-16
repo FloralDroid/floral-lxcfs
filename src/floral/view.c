@@ -34,39 +34,99 @@ static const struct floral_cpu_core sm8550_cores[] = {
 
 #define FLORAL_CPU_SYS_PREFIX "/sys/devices/system/cpu"
 #define FLORAL_NODE_SYS_PREFIX "/sys/devices/system/node"
+#define FLORAL_BLOCK_SYS_PREFIX "/sys/block"
 
 static const char *const cpu_root_files[] = {
-	"online", "present", "possible", "offline", "isolated", "kernel_max", "uevent",
+	"online",
+	"present",
+	"possible",
+	"offline",
+	"isolated",
+	"kernel_max",
+	"uevent",
 };
 
 static const char *const cpu_files[] = {
-	"online", "uevent", "cpu_capacity",
+	"online",
+	"uevent",
+	"cpu_capacity",
 };
 
 static const char *const topology_files[] = {
-	"cluster_id", "core_id", "core_cpus", "core_cpus_list", "core_siblings",
-	"core_siblings_list", "die_id", "package_cpus", "package_cpus_list",
-	"physical_package_id", "thread_siblings", "thread_siblings_list",
+	"cluster_id",
+	"core_id",
+	"core_cpus",
+	"core_cpus_list",
+	"core_siblings",
+	"core_siblings_list",
+	"die_id",
+	"package_cpus",
+	"package_cpus_list",
+	"physical_package_id",
+	"thread_siblings",
+	"thread_siblings_list",
 };
 
 static const char *const cpufreq_files[] = {
-	"affected_cpus", "cpuinfo_cur_freq", "cpuinfo_max_freq", "cpuinfo_min_freq",
-	"related_cpus", "scaling_available_governors", "scaling_cur_freq",
-	"scaling_driver", "scaling_governor", "scaling_max_freq", "scaling_min_freq",
+	"affected_cpus",
+	"cpuinfo_cur_freq",
+	"cpuinfo_max_freq",
+	"cpuinfo_min_freq",
+	"related_cpus",
+	"scaling_available_governors",
+	"scaling_cur_freq",
+	"scaling_driver",
+	"scaling_governor",
+	"scaling_max_freq",
+	"scaling_min_freq",
 };
 
 static const char *const cache_files[] = {
-	"allocation_policy", "coherency_line_size", "id", "level", "number_of_sets",
-	"physical_line_partition", "shared_cpu_list", "shared_cpu_map", "size", "type",
-	"ways_of_associativity", "write_policy",
+	"allocation_policy",
+	"coherency_line_size",
+	"id",
+	"level",
+	"number_of_sets",
+	"physical_line_partition",
+	"shared_cpu_list",
+	"shared_cpu_map",
+	"size",
+	"type",
+	"ways_of_associativity",
+	"write_policy",
 };
 
 static const char *const node_root_files[] = {
-	"has_cpu", "has_memory", "online", "possible",
+	"has_cpu",
+	"has_memory",
+	"online",
+	"possible",
 };
 
 static const char *const node_files[] = {
-	"cpulist", "cpumap", "distance", "meminfo", "numastat", "uevent",
+	"cpulist",
+	"cpumap",
+	"distance",
+	"meminfo",
+	"numastat",
+	"uevent",
+};
+
+static const char *const block_files[] = {
+	"dev",
+	"disksize",
+	"size",
+	"ro",
+	"removable",
+	"initstate",
+	"mem_used_total",
+	"orig_data_size",
+	"compr_data_size",
+	"mm_stat",
+	"stat",
+	"uevent",
+	"comp_algorithm",
+	"writeback",
 };
 
 static bool profile_is_sm8550(const struct floral_cpu_profile *profile)
@@ -131,7 +191,8 @@ int floral_visible_cpu_count(const struct floral_cpu_profile *profile,
 	int available = cpuset ? cpu_number_in_cpuset(cpuset) : 0;
 	int configured = profile_cpu_limit(profile);
 	int template_limit = profile_is_sm8550(profile) ?
-		(int)(sizeof(sm8550_cores) / sizeof(sm8550_cores[0])) : 0;
+					   (int)(sizeof(sm8550_cores) / sizeof(sm8550_cores[0])) :
+					   0;
 	int visible;
 
 	if (available <= 0)
@@ -167,8 +228,8 @@ static int append_format(char **cursor, size_t *remaining, const char *format, .
 static int append_features(char **cursor, size_t *remaining, const char *features)
 {
 	const char *source = features[0] ? features :
-		"fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp "
-		"cpuid asimdrdm lrcpc dcpop asimddp";
+						 "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp "
+					   "cpuid asimdrdm lrcpc dcpop asimddp";
 	bool separator = false;
 
 	for (; *source; source++) {
@@ -196,12 +257,12 @@ static int append_features(char **cursor, size_t *remaining, const char *feature
 }
 
 ssize_t floral_render_cpuinfo(const struct floral_cpu_profile *profile,
-			     int cpu_count, char *buffer, size_t size)
+			      int cpu_count, char *buffer, size_t size)
 {
 	const char *model = profile->cpu_model[0] ? profile->cpu_model :
-		"ARMv8 Processor rev 1 (v8l)";
+							  "ARMv8 Processor rev 1 (v8l)";
 	const char *hardware = profile->soc_model[0] ? profile->soc_model :
-		(profile->cpu_vendor[0] ? profile->cpu_vendor : "Generic ARM64");
+							     (profile->cpu_vendor[0] ? profile->cpu_vendor : "Generic ARM64");
 	char *cursor = buffer;
 	size_t remaining = size;
 
@@ -216,7 +277,8 @@ ssize_t floral_render_cpuinfo(const struct floral_cpu_profile *profile,
 				  "processor\t: %d\n"
 				  "model name\t: %s\n"
 				  "BogoMIPS\t: 38.40\n"
-				  "Features\t: ", cpu, model) < 0)
+				  "Features\t: ",
+				  cpu, model) < 0)
 			return -ENOSPC;
 		if (append_features(&cursor, &remaining, profile->cpu_features) < 0)
 			return -ENOSPC;
@@ -225,7 +287,8 @@ ssize_t floral_render_cpuinfo(const struct floral_cpu_profile *profile,
 				  "CPU architecture: 8\n"
 				  "CPU variant\t: 0x0\n"
 				  "CPU part\t: 0x%03x\n"
-				  "CPU revision\t: 1\n\n", part) < 0)
+				  "CPU revision\t: 1\n\n",
+				  part) < 0)
 			return -ENOSPC;
 	}
 
@@ -233,6 +296,28 @@ ssize_t floral_render_cpuinfo(const struct floral_cpu_profile *profile,
 		return -ENOSPC;
 
 	return cursor - buffer;
+}
+
+ssize_t floral_render_kernel_identity(const struct floral_cpu_profile *profile,
+				      const char *path, char *buffer, size_t size)
+{
+	const char *release = profile && profile->kernel_release[0] ?
+					    profile->kernel_release :
+					    NULL;
+	const char *version = profile && profile->kernel_version[0] ?
+					    profile->kernel_version :
+					    NULL;
+
+	if (!profile || !buffer || !size || !floral_profile_has_kernel_identity(profile))
+		return -ENOENT;
+	if (strcmp(path, "/proc/sys/kernel/osrelease") == 0 && release)
+		return snprintf(buffer, size, "%s\n", release);
+	if (strcmp(path, "/proc/version") == 0 && release) {
+		if (version)
+			return snprintf(buffer, size, "Linux version %s %s\n", release, version);
+		return snprintf(buffer, size, "Linux version %s\n", release);
+	}
+	return -ENOENT;
 }
 
 static bool string_in_array(const char *value, const char *const *array, size_t count)
@@ -255,7 +340,30 @@ bool floral_sys_manages_path(const char *path)
 		       strlen(FLORAL_CPU_SYS_PREFIX "/")) == 0 ||
 	       strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
 	       strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
-		       strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0;
+		       strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_BLOCK_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_BLOCK_SYS_PREFIX "/",
+		       strlen(FLORAL_BLOCK_SYS_PREFIX "/")) == 0;
+}
+
+static enum floral_sys_node_type block_sys_node_type(const char *path)
+{
+	const char *suffix;
+
+	if (strcmp(path, FLORAL_BLOCK_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(path, FLORAL_BLOCK_SYS_PREFIX "/",
+		    strlen(FLORAL_BLOCK_SYS_PREFIX "/")) != 0)
+		return FLORAL_SYS_NONE;
+
+	suffix = path + strlen(FLORAL_BLOCK_SYS_PREFIX "/");
+	if (strcmp(suffix, "zram0") == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(suffix, "zram0/", strlen("zram0/")) == 0 &&
+	    string_in_array(suffix + strlen("zram0/"), block_files,
+			    sizeof(block_files) / sizeof(block_files[0])))
+		return FLORAL_SYS_FILE;
+	return FLORAL_SYS_NONE;
 }
 
 static enum floral_sys_node_type node_sys_node_type(const char *path)
@@ -336,6 +444,9 @@ enum floral_sys_node_type floral_sys_node_type(const struct floral_cpu_profile *
 	if (!profile || !floral_sys_manages_path(path) || cpu_count < 1 ||
 	    !floral_profile_has_cpu_identity(profile))
 		return FLORAL_SYS_NONE;
+	if (strncmp(path, FLORAL_BLOCK_SYS_PREFIX,
+		    strlen(FLORAL_BLOCK_SYS_PREFIX)) == 0)
+		return block_sys_node_type(path);
 	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
 	    strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
 		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)
@@ -416,6 +527,11 @@ int floral_sys_list_directory(const struct floral_cpu_profile *profile,
 	if (strcmp(path, FLORAL_NODE_SYS_PREFIX "/node0") == 0)
 		return emit_array(emit, context, node_files,
 				  sizeof(node_files) / sizeof(node_files[0]));
+	if (strcmp(path, FLORAL_BLOCK_SYS_PREFIX) == 0)
+		return emit(context, "zram0");
+	if (strcmp(path, FLORAL_BLOCK_SYS_PREFIX "/zram0") == 0)
+		return emit_array(emit, context, block_files,
+				  sizeof(block_files) / sizeof(block_files[0]));
 	if (strcmp(path, FLORAL_CPU_SYS_PREFIX) == 0) {
 		for (int i = 0; i < cpu_count; i++) {
 			int length = snprintf(name, sizeof(name), "cpu%d", i);
@@ -624,7 +740,8 @@ static ssize_t render_node_file(int cpu_count, uint64_t memory_total_kb,
 	size_t remaining = size;
 	uint64_t total_pages = memory_total_kb / 4;
 	uint64_t used_kb = memory_total_kb > memory_free_kb ?
-		memory_total_kb - memory_free_kb : 0;
+					 memory_total_kb - memory_free_kb :
+					 0;
 
 	if (strncmp(path, FLORAL_NODE_SYS_PREFIX "/node0/",
 		    strlen(FLORAL_NODE_SYS_PREFIX "/node0/")) != 0) {
@@ -665,6 +782,44 @@ static ssize_t render_node_file(int cpu_count, uint64_t memory_total_kb,
 	return cursor - buffer;
 }
 
+static ssize_t render_block_file(uint64_t swap_total_kb, uint64_t swap_used_kb,
+				 const char *path, char *buffer, size_t size)
+{
+	const char *file = path + strlen(FLORAL_BLOCK_SYS_PREFIX "/zram0/");
+	uint64_t swap_total_bytes = swap_total_kb * UINT64_C(1024);
+	uint64_t swap_used_bytes = swap_used_kb * UINT64_C(1024);
+
+	if (strcmp(file, "dev") == 0)
+		return snprintf(buffer, size, "252:0\n");
+	if (strcmp(file, "disksize") == 0)
+		return snprintf(buffer, size, "%" PRIu64 "\n", swap_total_bytes);
+	if (strcmp(file, "size") == 0)
+		return snprintf(buffer, size, "%" PRIu64 "\n", swap_total_bytes / 512);
+	if (strcmp(file, "ro") == 0 || strcmp(file, "removable") == 0)
+		return snprintf(buffer, size, "0\n");
+	if (strcmp(file, "initstate") == 0)
+		return snprintf(buffer, size, "1\n");
+	if (strcmp(file, "mem_used_total") == 0)
+		return snprintf(buffer, size, "%" PRIu64 "\n", swap_used_bytes);
+	if (strcmp(file, "orig_data_size") == 0 ||
+	    strcmp(file, "compr_data_size") == 0)
+		return snprintf(buffer, size, "%" PRIu64 "\n", swap_used_bytes);
+	if (strcmp(file, "mm_stat") == 0)
+		return snprintf(buffer, size, "%" PRIu64 " %" PRIu64 " %" PRIu64
+				" 0 0 0\n", swap_used_bytes, swap_used_bytes,
+				swap_used_bytes);
+	if (strcmp(file, "stat") == 0)
+		return snprintf(buffer, size, "0 0 0 0 0 0 0 0 0 0 0\n");
+	if (strcmp(file, "uevent") == 0)
+		return snprintf(buffer, size,
+				"MAJOR=252\nMINOR=0\nDEVNAME=zram0\nDEVTYPE=disk\n");
+	if (strcmp(file, "comp_algorithm") == 0)
+		return snprintf(buffer, size, "none\n");
+	if (strcmp(file, "writeback") == 0)
+		return snprintf(buffer, size, "0\n");
+	return -ENOENT;
+}
+
 ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 			       int cpu_count, const char *path,
 			       char *buffer, size_t size)
@@ -678,6 +833,18 @@ ssize_t floral_render_sys_file_with_memory(const struct floral_cpu_profile *prof
 					   uint64_t memory_free_kb, const char *path,
 					   char *buffer, size_t size)
 {
+	return floral_render_sys_file_with_memory_and_swap(profile, cpu_count,
+						   memory_total_kb, memory_free_kb,
+						   0, 0, path, buffer, size);
+}
+
+ssize_t floral_render_sys_file_with_memory_and_swap(
+					   const struct floral_cpu_profile *profile,
+					   int cpu_count, uint64_t memory_total_kb,
+					   uint64_t memory_free_kb, uint64_t swap_total_kb,
+					   uint64_t swap_used_kb, const char *path,
+					   char *buffer, size_t size)
+{
 	const char *suffix, *file;
 	int cpu, index;
 
@@ -689,6 +856,9 @@ ssize_t floral_render_sys_file_with_memory(const struct floral_cpu_profile *prof
 		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)
 		return render_node_file(cpu_count, memory_total_kb, memory_free_kb,
 					path, buffer, size);
+	if (strncmp(path, FLORAL_BLOCK_SYS_PREFIX "/zram0/",
+		    strlen(FLORAL_BLOCK_SYS_PREFIX "/zram0/")) == 0)
+		return render_block_file(swap_total_kb, swap_used_kb, path, buffer, size);
 
 	if (strncmp(path, FLORAL_CPU_SYS_PREFIX "/cpu",
 		    strlen(FLORAL_CPU_SYS_PREFIX "/cpu")) != 0)

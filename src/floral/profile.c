@@ -88,6 +88,8 @@ int floral_profile_parse(char *data, struct floral_cpu_profile *profile)
 		{ "cpu_feature_view", profile->cpu_feature_view, sizeof(profile->cpu_feature_view), false },
 		{ "cpu_cores", profile->cpu_cores, sizeof(profile->cpu_cores), false },
 		{ "soc_model", profile->soc_model, sizeof(profile->soc_model), false },
+		{ "kernel_release", profile->kernel_release, sizeof(profile->kernel_release), false },
+		{ "kernel_version", profile->kernel_version, sizeof(profile->kernel_version), false },
 	};
 
 	if (!data || !profile)
@@ -246,4 +248,12 @@ bool floral_profile_has_cpu_identity(const struct floral_cpu_profile *profile)
 	return profile->cpu_vendor[0] || profile->cpu_model[0] ||
 	       profile->cpu_features[0] || profile->cpu_feature_view[0] ||
 	       profile->soc_model[0];
+}
+
+bool floral_profile_has_kernel_identity(const struct floral_cpu_profile *profile)
+{
+	if (!profile || profile->version != 1)
+		return false;
+
+	return profile->kernel_release[0] || profile->kernel_version[0];
 }

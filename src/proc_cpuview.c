@@ -1267,6 +1267,100 @@ int read_cpuacct_usage_all(char *cg, char *cpuset,
 	return 0;
 }
 
+/*
+ * Cgroup v2 exposes aggregate usage in cpu.stat instead of the legacy
+ * per-CPU cpuacct files.  Build a stable virtual per-CPU array from that
+ * aggregate so /proc/stat can retain its existing rendering path without
+ * borrowing host CPU time.
+ */
+static uint64_t cpu_usec_to_ticks(uint64_t usec, uint64_t ticks_per_sec)
+{
+	return (usec / UINT64_C(1000000)) * ticks_per_sec +
+	       ((usec % UINT64_C(1000000)) * ticks_per_sec) /
+		       UINT64_C(1000000);
+}
+
+int read_cpu_cgroup_usage(char *cg, char *cpuset, int visible_cpus,
+			  struct cpuacct_usage **return_usage, int *size)
+{
+	__do_free char *stat = NULL;
+	__do_free struct cpuacct_usage *cpu_usage = NULL;
+	char *line, *cursor;
+	uint64_t usage_usec = 0, user_usec = 0, system_usec = 0;
+	bool have_usage = false, have_user = false, have_system = false;
+	int cpucount, assigned = 0;
+	int64_t ticks_per_sec;
+
+	if (!cg || !cpuset || !return_usage || !size)
+		return -EINVAL;
+	if (!cgroup_ops->get(cgroup_ops, "cpu", cg, "cpu.stat", &stat) ||
+	    !stat)
+		return -ENOENT;
+
+	cursor = stat;
+	while ((line = strsep(&cursor, "\n")) != NULL) {
+		char key[32];
+		uint64_t value;
+
+		if (sscanf(line, "%31s %" PRIu64, key, &value) != 2)
+			continue;
+		if (strcmp(key, "usage_usec") == 0) {
+			usage_usec = value;
+			have_usage = true;
+		} else if (strcmp(key, "user_usec") == 0) {
+			user_usec = value;
+			have_user = true;
+		} else if (strcmp(key, "system_usec") == 0) {
+			system_usec = value;
+			have_system = true;
+		}
+	}
+	if (!have_usage && !(have_user && have_system))
+		return -EINVAL;
+	if (!have_user)
+		user_usec = usage_usec;
+	if (!have_system)
+		system_usec = 0;
+
+	ticks_per_sec = sysconf(_SC_CLK_TCK);
+	if (ticks_per_sec <= 0)
+		return -EINVAL;
+
+	cpucount = get_nprocs_conf();
+	if (cpucount <= 0)
+		return -EINVAL;
+	cpu_usage = zalloc(sizeof(*cpu_usage) * cpucount);
+	if (!cpu_usage)
+		return -ENOMEM;
+
+	if (visible_cpus <= 0)
+		visible_cpus = cpu_number_in_cpuset(cpuset);
+	if (visible_cpus <= 0)
+		return -EINVAL;
+
+	uint64_t user_ticks = cpu_usec_to_ticks(user_usec, (uint64_t)ticks_per_sec);
+	uint64_t system_ticks = cpu_usec_to_ticks(system_usec, (uint64_t)ticks_per_sec);
+	uint64_t user_base = user_ticks / (uint64_t)visible_cpus;
+	uint64_t user_remainder = user_ticks % (uint64_t)visible_cpus;
+	uint64_t system_base = system_ticks / (uint64_t)visible_cpus;
+	uint64_t system_remainder = system_ticks % (uint64_t)visible_cpus;
+
+	for (int cpu = 0; cpu < cpucount && assigned < visible_cpus; cpu++) {
+		if (!cpu_in_cpuset(cpu, cpuset))
+			continue;
+		cpu_usage[cpu].user = user_base + (assigned < (int)user_remainder);
+		cpu_usage[cpu].system = system_base + (assigned < (int)system_remainder);
+		cpu_usage[cpu].online = true;
+		assigned++;
+	}
+	if (assigned != visible_cpus)
+		return -EINVAL;
+
+	*return_usage = move_ptr(cpu_usage);
+	*size = cpucount;
+	return 0;
+}
+
 static bool cpuview_init_head(struct cg_proc_stat_head **head)
 {
 	__do_free struct cg_proc_stat_head *h;

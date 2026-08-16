@@ -26,4 +26,13 @@ echo "==> Testing /proc/zoneinfo"
 echo "==> Testing /proc/vmstat"
 "{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/vmstat 3 >/dev/null
 
+echo "==> Testing /proc/buddyinfo"
+"{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/buddyinfo 3 >/dev/null
+
+echo "==> Testing /proc/version"
+"{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/version 3 >/dev/null
+
+echo "==> Testing /proc/sys/kernel/osrelease"
+"{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/sys/kernel/osrelease 3 >/dev/null
+
 exit 0

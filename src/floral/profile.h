@@ -23,11 +23,14 @@ struct floral_cpu_profile {
 	char cpu_feature_view[FLORAL_PROFILE_VALUE_MAX];
 	char cpu_cores[32];
 	char soc_model[FLORAL_PROFILE_VALUE_MAX];
+	char kernel_release[FLORAL_PROFILE_VALUE_MAX];
+	char kernel_version[FLORAL_PROFILE_VALUE_MAX];
 };
 
 int floral_profile_parse(char *data, struct floral_cpu_profile *profile);
 int floral_profile_load(pid_t initpid, const struct lxcfs_opts *opts,
 			struct floral_cpu_profile *profile);
 bool floral_profile_has_cpu_identity(const struct floral_cpu_profile *profile);
+bool floral_profile_has_kernel_identity(const struct floral_cpu_profile *profile);
 
 #endif /* __LXCFS_FLORAL_PROFILE_H */

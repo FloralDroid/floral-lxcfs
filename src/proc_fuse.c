@@ -107,10 +107,10 @@ static off_t get_procfile_size_with_personality(const char *path)
 		ret = personality(caller_personality);
 		if (ret == -1)
 			return log_error(0, "Call to personality(%d) failed: %s\n",
-					caller_personality, strerror(errno));
+					 caller_personality, strerror(errno));
 
 		lxcfs_debug("task (tid: %d) personality was changed %d -> %d\n",
-				(int)syscall(SYS_gettid), ret, caller_personality);
+			    (int)syscall(SYS_gettid), ret, caller_personality);
 	}
 
 	procfile_size_ret = get_procfile_size(path);
@@ -119,10 +119,10 @@ static off_t get_procfile_size_with_personality(const char *path)
 		ret = personality(host_personality);
 		if (ret == -1)
 			return log_error(0, "Call to personality(%d) failed: %s\n",
-					host_personality, strerror(errno));
+					 host_personality, strerror(errno));
 
 		lxcfs_debug("task (tid: %d) personality was restored %d -> %d\n",
-				(int)syscall(SYS_gettid), ret, host_personality);
+			    (int)syscall(SYS_gettid), ret, host_personality);
 	}
 
 	return procfile_size_ret;
@@ -148,37 +148,44 @@ __lxcfs_fuse_ops int proc_getattr(const char *path, struct stat *sb)
 		sb->st_nlink = 2;
 		return 0;
 	}
+	if (strcmp(path, "/proc/sys") == 0 ||
+	    strcmp(path, "/proc/sys/kernel") == 0) {
+		sb->st_mode = S_IFDIR | 00555;
+		sb->st_nlink = 2;
+		return 0;
+	}
 
-	if (strcmp(path, "/proc/meminfo")	== 0 ||
-	    strcmp(path, "/proc/cpuinfo")	== 0 ||
-	    strcmp(path, "/proc/uptime")	== 0 ||
-	    strcmp(path, "/proc/stat")		== 0 ||
-	    strcmp(path, "/proc/diskstats")	== 0 ||
-	    strcmp(path, "/proc/swaps")		== 0 ||
-	    strcmp(path, "/proc/loadavg")	== 0 ||
-	    strcmp(path, "/proc/slabinfo")	== 0 ||
-	    strcmp(path, "/proc/zoneinfo")	== 0 ||
-	    strcmp(path, "/proc/vmstat")		== 0) {
+	if (strcmp(path, "/proc/meminfo") == 0 ||
+	    strcmp(path, "/proc/cpuinfo") == 0 ||
+	    strcmp(path, "/proc/uptime") == 0 ||
+	    strcmp(path, "/proc/stat") == 0 ||
+	    strcmp(path, "/proc/diskstats") == 0 ||
+	    strcmp(path, "/proc/swaps") == 0 ||
+	    strcmp(path, "/proc/loadavg") == 0 ||
+	    strcmp(path, "/proc/slabinfo") == 0 ||
+	    strcmp(path, "/proc/zoneinfo") == 0 ||
+	    strcmp(path, "/proc/vmstat") == 0 ||
+	    strcmp(path, "/proc/buddyinfo") == 0 ||
+	    strcmp(path, "/proc/version") == 0 ||
+	    strcmp(path, "/proc/sys/kernel/osrelease") == 0) {
 		if (liblxcfs_functional()) {
 			if (!can_access_personality())
 				return log_error(-EACCES, RESTRICTED_PERSONALITY_ACCESS_POLICY);
 			sb->st_size = get_procfile_size_with_personality(path);
-		}
-		else
+		} else
 			sb->st_size = get_procfile_size(path);
 		sb->st_mode = S_IFREG | 00444;
 		sb->st_nlink = 1;
 		return 0;
 	}
-	if (strcmp(path, "/proc/pressure/io")		== 0 ||
-	    strcmp(path, "/proc/pressure/cpu")		== 0 ||
-	    strcmp(path, "/proc/pressure/memory")	== 0) {
+	if (strcmp(path, "/proc/pressure/io") == 0 ||
+	    strcmp(path, "/proc/pressure/cpu") == 0 ||
+	    strcmp(path, "/proc/pressure/memory") == 0) {
 		if (liblxcfs_functional()) {
 			if (!can_access_personality())
 				return log_error(-EACCES, RESTRICTED_PERSONALITY_ACCESS_POLICY);
 			sb->st_size = get_procfile_size_with_personality(path);
-		}
-		else
+		} else
 			sb->st_size = get_procfile_size(path);
 		/* TODO: read-only now, will be writable after monitoring support */
 		sb->st_mode = S_IFREG | 00444;
@@ -193,29 +200,46 @@ __lxcfs_fuse_ops int proc_readdir(const char *path, void *buf,
 				  fuse_fill_dir_t filler, off_t offset,
 				  struct fuse_file_info *fi)
 {
-	if (strcmp(path, "/proc") ==  0) {
-		if (dir_filler(filler, buf, ".",		0) != 0 ||
-		    dir_filler(filler, buf, "..",		0) != 0 ||
-		    dir_filler(filler, buf, "cpuinfo",		0) != 0 ||
-		    dir_filler(filler, buf, "meminfo",		0) != 0 ||
-		    dir_filler(filler, buf, "stat",		0) != 0 ||
-		    dir_filler(filler, buf, "uptime",		0) != 0 ||
-		    dir_filler(filler, buf, "diskstats",	0) != 0 ||
-		    dir_filler(filler, buf, "swaps",		0) != 0 ||
-		    dir_filler(filler, buf, "loadavg",		0) != 0 ||
-		    dir_filler(filler, buf, "slabinfo",		0) != 0 ||
-		    dir_filler(filler, buf, "zoneinfo",		0) != 0 ||
-		    dir_filler(filler, buf, "vmstat",		0) != 0 ||
+	if (strcmp(path, "/proc") == 0) {
+		if (dir_filler(filler, buf, ".", 0) != 0 ||
+		    dir_filler(filler, buf, "..", 0) != 0 ||
+		    dir_filler(filler, buf, "cpuinfo", 0) != 0 ||
+		    dir_filler(filler, buf, "meminfo", 0) != 0 ||
+		    dir_filler(filler, buf, "stat", 0) != 0 ||
+		    dir_filler(filler, buf, "uptime", 0) != 0 ||
+		    dir_filler(filler, buf, "diskstats", 0) != 0 ||
+		    dir_filler(filler, buf, "swaps", 0) != 0 ||
+		    dir_filler(filler, buf, "loadavg", 0) != 0 ||
+		    dir_filler(filler, buf, "slabinfo", 0) != 0 ||
+		    dir_filler(filler, buf, "zoneinfo", 0) != 0 ||
+		    dir_filler(filler, buf, "vmstat", 0) != 0 ||
+		    dir_filler(filler, buf, "buddyinfo", 0) != 0 ||
+		    dir_filler(filler, buf, "version", 0) != 0 ||
+		    dir_filler(filler, buf, "sys", 0) != 0 ||
 		    dirent_filler(filler, path, "pressure", buf, 0) != 0)
 			return -EINVAL;
 		return 0;
 	}
-	if (strcmp(path, "/proc/pressure") ==  0) {
-		if (dir_filler(filler, buf, ".",	0) != 0 ||
-		    dir_filler(filler, buf, "..",	0) != 0 ||
-		    dir_filler(filler, buf, "io",	0) != 0 ||
-		    dir_filler(filler, buf, "cpu",	0) != 0 ||
-		    dir_filler(filler, buf, "memory",	0) != 0)
+	if (strcmp(path, "/proc/sys") == 0) {
+		if (dir_filler(filler, buf, ".", 0) != 0 ||
+		    dir_filler(filler, buf, "..", 0) != 0 ||
+		    dir_filler(filler, buf, "kernel", 0) != 0)
+			return -EINVAL;
+		return 0;
+	}
+	if (strcmp(path, "/proc/sys/kernel") == 0) {
+		if (dir_filler(filler, buf, ".", 0) != 0 ||
+		    dir_filler(filler, buf, "..", 0) != 0 ||
+		    dir_filler(filler, buf, "osrelease", 0) != 0)
+			return -EINVAL;
+		return 0;
+	}
+	if (strcmp(path, "/proc/pressure") == 0) {
+		if (dir_filler(filler, buf, ".", 0) != 0 ||
+		    dir_filler(filler, buf, "..", 0) != 0 ||
+		    dir_filler(filler, buf, "io", 0) != 0 ||
+		    dir_filler(filler, buf, "cpu", 0) != 0 ||
+		    dir_filler(filler, buf, "memory", 0) != 0)
 			return -EINVAL;
 		return 0;
 	}
@@ -248,6 +272,12 @@ __lxcfs_fuse_ops int proc_open(const char *path, struct fuse_file_info *fi)
 		type = LXC_TYPE_PROC_ZONEINFO;
 	else if (strcmp(path, "/proc/vmstat") == 0)
 		type = LXC_TYPE_PROC_VMSTAT;
+	else if (strcmp(path, "/proc/buddyinfo") == 0)
+		type = LXC_TYPE_PROC_BUDDYINFO;
+	else if (strcmp(path, "/proc/version") == 0)
+		type = LXC_TYPE_PROC_VERSION;
+	else if (strcmp(path, "/proc/sys/kernel/osrelease") == 0)
+		type = LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE;
 	else if (strcmp(path, "/proc/pressure/io") == 0)
 		type = LXC_TYPE_PROC_PRESSURE_IO;
 	else if (strcmp(path, "/proc/pressure/cpu") == 0)
@@ -267,8 +297,7 @@ __lxcfs_fuse_ops int proc_open(const char *path, struct fuse_file_info *fi)
 		if (!can_access_personality())
 			return log_error(-EACCES, RESTRICTED_PERSONALITY_ACCESS_POLICY);
 		info->buflen = get_procfile_size_with_personality(path) + BUF_RESERVE_SIZE;
-	}
-	else
+	} else
 		info->buflen = get_procfile_size(path) + BUF_RESERVE_SIZE;
 
 	info->buf = zalloc(info->buflen);
@@ -293,6 +322,10 @@ __lxcfs_fuse_ops int proc_opendir(const char *path, struct fuse_file_info *fi)
 		type = LXC_TYPE_PROC;
 	else if (strcmp(path, "/proc/pressure") == 0)
 		type = LXC_TYPE_PROC_PRESSURE;
+	else if (strcmp(path, "/proc/sys") == 0)
+		type = LXC_TYPE_PROC_SYS;
+	else if (strcmp(path, "/proc/sys/kernel") == 0)
+		type = LXC_TYPE_PROC_SYS_KERNEL;
 	if (type == -1)
 		return -ENOENT;
 
@@ -314,6 +347,10 @@ __lxcfs_fuse_ops int proc_access(const char *path, int mask)
 	if (strcmp(path, "/proc") == 0 && access(path, R_OK) == 0)
 		return 0;
 	if (strcmp(path, "/proc/pressure") == 0 && access(path, R_OK) == 0)
+		return 0;
+	if ((strcmp(path, "/proc/sys") == 0 ||
+	     strcmp(path, "/proc/sys/kernel") == 0) &&
+	    access(path, R_OK) == 0)
 		return 0;
 
 	/* these are all read-only */
@@ -504,7 +541,7 @@ static int proc_swaps_read(char *buf, size_t size, off_t offset,
 			   struct fuse_file_info *fi)
 {
 	__do_free char *cgroup = NULL, *memusage_str = NULL,
-		 *memswusage_str = NULL, *memswpriority_str = NULL;
+		       *memswusage_str = NULL, *memswpriority_str = NULL;
 	struct fuse_context *fc = fuse_get_context();
 	bool wants_swap = lxcfs_has_opt(fuse_get_context()->private_data, LXCFS_SWAP_ON);
 	struct file_info *d = INTTYPE_TO_PTR(fi->fh);
@@ -530,7 +567,7 @@ static int proc_swaps_read(char *buf, size_t size, off_t offset,
 			return 0;
 
 		left = d->size - offset;
-		total_len = left > size ? size: left;
+		total_len = left > size ? size : left;
 		memcpy(buf, cache + offset, total_len);
 
 		return total_len;
@@ -634,24 +671,24 @@ static void get_blkio_io_value(char *str, unsigned major, unsigned minor,
 }
 
 struct lxcfs_diskstats {
-	unsigned int major;		/*  1 - major number */
-	unsigned int minor;		/*  2 - minor mumber */
-	char dev_name[72];		/*  3 - device name */
-	uint64_t read;			/*  4 - reads completed successfully */
-	uint64_t read_merged;		/*  5 - reads merged */
-	uint64_t read_sectors;		/*  6 - sectors read */
-	uint64_t read_ticks;		/*  7 - time spent reading (ms) */
-	uint64_t write;			/*  8 - writes completed */
-	uint64_t write_merged;		/*  9 - writes merged */
-	uint64_t write_sectors; 	/* 10 - sectors written */
-	uint64_t write_ticks;		/* 11 - time spent writing (ms) */
-	uint64_t ios_pgr;		/* 12 - I/Os currently in progress */
-	uint64_t total_ticks;		/* 13 - time spent doing I/Os (ms) */
-	uint64_t rq_ticks;		/* 14 - weighted time spent doing I/Os (ms) */
-	uint64_t discard;		/* 15 - discards completed successfully	(4.18+) */
-	uint64_t discard_merged;	/* 16 - discards merged			(4.18+) */
-	uint64_t discard_sectors;	/* 17 - sectors discarded		(4.18+) */
-	uint64_t discard_ticks;		/* 18 - time spent discarding		(4.18+) */
+	unsigned int major;	  /*  1 - major number */
+	unsigned int minor;	  /*  2 - minor mumber */
+	char dev_name[72];	  /*  3 - device name */
+	uint64_t read;		  /*  4 - reads completed successfully */
+	uint64_t read_merged;	  /*  5 - reads merged */
+	uint64_t read_sectors;	  /*  6 - sectors read */
+	uint64_t read_ticks;	  /*  7 - time spent reading (ms) */
+	uint64_t write;		  /*  8 - writes completed */
+	uint64_t write_merged;	  /*  9 - writes merged */
+	uint64_t write_sectors;	  /* 10 - sectors written */
+	uint64_t write_ticks;	  /* 11 - time spent writing (ms) */
+	uint64_t ios_pgr;	  /* 12 - I/Os currently in progress */
+	uint64_t total_ticks;	  /* 13 - time spent doing I/Os (ms) */
+	uint64_t rq_ticks;	  /* 14 - weighted time spent doing I/Os (ms) */
+	uint64_t discard;	  /* 15 - discards completed successfully	(4.18+) */
+	uint64_t discard_merged;  /* 16 - discards merged			(4.18+) */
+	uint64_t discard_sectors; /* 17 - sectors discarded		(4.18+) */
+	uint64_t discard_ticks;	  /* 18 - time spent discarding		(4.18+) */
 };
 
 static int proc_diskstats_read(char *buf, size_t size, off_t offset,
@@ -668,7 +705,7 @@ static int proc_diskstats_read(char *buf, size_t size, off_t offset,
 	struct lxcfs_diskstats stats = {};
 	/* helper fields */
 	uint64_t read_service_time, write_service_time, discard_service_time, read_wait_time,
-	    write_wait_time, discard_wait_time;
+		write_wait_time, discard_wait_time;
 	char *cache;
 	size_t cache_size;
 	size_t linelen = 0, total_len = 0;
@@ -685,7 +722,7 @@ static int proc_diskstats_read(char *buf, size_t size, off_t offset,
 			return 0;
 
 		left = d->size - offset;
-		total_len = left > size ? size: left;
+		total_len = left > size ? size : left;
 		memcpy(buf, d->buf + offset, total_len);
 
 		return total_len;
@@ -793,7 +830,7 @@ static int proc_diskstats_read(char *buf, size_t size, off_t offset,
 				lbuf,
 				sizeof(lbuf),
 				"%u       %u" /* major, minor */
-				" %s"         /* dev_name */
+				" %s"	      /* dev_name */
 				" %" PRIu64   /* read */
 				" %" PRIu64   /* read_merged */
 				" %" PRIu64   /* read_sectors */
@@ -923,27 +960,27 @@ static uint64_t get_reaper_start_time(pid_t pid)
 	 * at us. It's like telling someone you're not married and then asking
 	 * if you can bring your wife to the party.
 	 */
-	ret = fscanf(f, "%*d "      /* (1)  pid         %d   */
-			"%*s "      /* (2)  comm        %s   */
-			"%*c "      /* (3)  state       %c   */
-			"%*d "      /* (4)  ppid        %d   */
-			"%*d "      /* (5)  pgrp        %d   */
-			"%*d "      /* (6)  session     %d   */
-			"%*d "      /* (7)  tty_nr      %d   */
-			"%*d "      /* (8)  tpgid       %d   */
-			"%*u "      /* (9)  flags       %u   */
-			"%*u "      /* (10) minflt      %lu  */
-			"%*u "      /* (11) cminflt     %lu  */
-			"%*u "      /* (12) majflt      %lu  */
-			"%*u "      /* (13) cmajflt     %lu  */
-			"%*u "      /* (14) utime       %lu  */
-			"%*u "      /* (15) stime       %lu  */
-			"%*d "      /* (16) cutime      %ld  */
-			"%*d "      /* (17) cstime      %ld  */
-			"%*d "      /* (18) priority    %ld  */
-			"%*d "      /* (19) nice        %ld  */
-			"%*d "      /* (20) num_threads %ld  */
-			"%*d "      /* (21) itrealvalue %ld  */
+	ret = fscanf(f, "%*d "	    /* (1)  pid         %d   */
+			"%*s "	    /* (2)  comm        %s   */
+			"%*c "	    /* (3)  state       %c   */
+			"%*d "	    /* (4)  ppid        %d   */
+			"%*d "	    /* (5)  pgrp        %d   */
+			"%*d "	    /* (6)  session     %d   */
+			"%*d "	    /* (7)  tty_nr      %d   */
+			"%*d "	    /* (8)  tpgid       %d   */
+			"%*u "	    /* (9)  flags       %u   */
+			"%*u "	    /* (10) minflt      %lu  */
+			"%*u "	    /* (11) cminflt     %lu  */
+			"%*u "	    /* (12) majflt      %lu  */
+			"%*u "	    /* (13) cmajflt     %lu  */
+			"%*u "	    /* (14) utime       %lu  */
+			"%*u "	    /* (15) stime       %lu  */
+			"%*d "	    /* (16) cutime      %ld  */
+			"%*d "	    /* (17) cstime      %ld  */
+			"%*d "	    /* (18) priority    %ld  */
+			"%*d "	    /* (19) nice        %ld  */
+			"%*d "	    /* (20) num_threads %ld  */
+			"%*d "	    /* (21) itrealvalue %ld  */
 			"%" PRIu64, /* (22) starttime   %llu */
 		     &starttime);
 	if (ret != 1)
@@ -1081,6 +1118,7 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 	size_t cache_size;
 	int cg_cpu_usage_size = 0;
 	bool use_view;
+	bool use_floral_profile = false;
 	int max_cpus = 0;
 	struct floral_cpu_profile floral_profile;
 
@@ -1110,6 +1148,10 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 	if (initpid <= 1 || is_shared_pidns(initpid))
 		initpid = fc->pid;
 
+	if (floral_profile_load(initpid, opts, &floral_profile) == 0 &&
+	    floral_profile_has_cpu_identity(&floral_profile))
+		use_floral_profile = true;
+
 	/*
 	 * when container run with host pid namespace initpid == 1, cgroup will "/"
 	 * we should return host os's /proc contents.
@@ -1119,12 +1161,16 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 		return read_file_fuse("/proc/stat", buf, size, d);
 
 	cg = get_pid_cgroup(initpid, "cpuset");
-	if (!cg)
+	if (!cg && !use_floral_profile)
 		return read_file_fuse("/proc/stat", buf, size, d);
+	if (!cg)
+		return -EIO;
 	prune_init_slice(cg);
 	cpu_cg = get_pid_cgroup(initpid, "cpu");
-	if (!cpu_cg)
+	if (!cpu_cg && !use_floral_profile)
 		return read_file_fuse("/proc/stat", buf, size, d);
+	if (!cpu_cg)
+		return -EIO;
 	prune_init_slice(cpu_cg);
 	cpuset = get_cpuset(cg);
 	if (!cpuset)
@@ -1135,8 +1181,7 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 		use_view = false;
 	if (use_view)
 		max_cpus = max_cpu_count(cg, cpu_cg);
-	if (floral_profile_load(initpid, opts, &floral_profile) == 0 &&
-	    floral_profile_has_cpu_identity(&floral_profile)) {
+	if (use_floral_profile) {
 		max_cpus = floral_visible_cpu_count(&floral_profile, cpuset, max_cpus);
 		use_view = true;
 	}
@@ -1150,11 +1195,12 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 		return log_error(0, "proc_stat_read read first line failed");
 
 	/*
-	 * Read cpuacct.usage_all for all CPUs.
-	 * If the cpuacct cgroup is present, it is used to calculate the container's
-	 * CPU usage. If not, values from the host's /proc/stat are used.
+	 * Prefer cgroup v2 cpu.stat, which is the aggregate CPU time consumed by
+	 * this container. Legacy cpuacct data remains supported for cgroup v1.
 	 */
-	if (read_cpuacct_usage_all(cg, cpuset, &cg_cpu_usage, &cg_cpu_usage_size) == 0) {
+	if (read_cpu_cgroup_usage(cpu_cg, cpuset, max_cpus,
+				  &cg_cpu_usage, &cg_cpu_usage_size) == 0 ||
+	    read_cpuacct_usage_all(cg, cpuset, &cg_cpu_usage, &cg_cpu_usage_size) == 0) {
 		if (cgroup_ops->can_use_cpuview(cgroup_ops) && opts && opts->use_cfs) {
 			total_len = cpuview_proc_stat(cg, cpu_cg, cpuset, cg_cpu_usage,
 						      cg_cpu_usage_size, f,
@@ -1162,7 +1208,9 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 			goto out;
 		}
 	} else {
-		lxcfs_v("proc_stat_read failed to read from cpuacct, falling back to the host's /proc/stat");
+		if (use_floral_profile)
+			return -EIO;
+		lxcfs_v("proc_stat_read failed to read cgroup CPU usage, falling back to the host's /proc/stat");
 	}
 
 	while (getline(&line, &linelen, f) != -1) {
@@ -1193,7 +1241,7 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 			continue;
 
 		if (use_view && max_cpus > 0 && (curcpu + 1) == max_cpus)
-			continue;	// cannot break here because we need to consume all non-cpu lines
+			continue; // cannot break here because we need to consume all non-cpu lines
 
 		if (!cpu_in_cpuset(physcpu, cpuset))
 			continue;
@@ -1206,28 +1254,28 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 			cpu_to_render = physcpu;
 
 		ret = sscanf(
-			   line,
-			   "%*s"        /* <skip> */
-			   " %" PRIu64  /* user */
-			   " %" PRIu64  /* nice */
-			   " %" PRIu64  /* system */
-			   " %" PRIu64  /* idle */
-			   " %" PRIu64  /* iowait */
-			   " %" PRIu64  /* irq */
-			   " %" PRIu64  /* softirq */
-			   " %" PRIu64  /* steal */
-			   " %" PRIu64  /* guest */
-			   " %" PRIu64, /* guest_nice */
-			   &user,
-			   &nice,
-			   &system,
-			   &idle,
-			   &iowait,
-			   &irq,
-			   &softirq,
-			   &steal,
-			   &guest,
-			   &guest_nice);
+			line,
+			"%*s"	     /* <skip> */
+			" %" PRIu64  /* user */
+			" %" PRIu64  /* nice */
+			" %" PRIu64  /* system */
+			" %" PRIu64  /* idle */
+			" %" PRIu64  /* iowait */
+			" %" PRIu64  /* irq */
+			" %" PRIu64  /* softirq */
+			" %" PRIu64  /* steal */
+			" %" PRIu64  /* guest */
+			" %" PRIu64, /* guest_nice */
+			&user,
+			&nice,
+			&system,
+			&idle,
+			&iowait,
+			&irq,
+			&softirq,
+			&steal,
+			&guest,
+			&guest_nice);
 		if (ret != 10 || !cg_cpu_usage) {
 			c = strchr(line, ' ');
 			if (!c)
@@ -1295,30 +1343,30 @@ static int proc_stat_read(char *buf, size_t size, off_t offset,
 	cache = d->buf;
 
 	int cpuall_len = snprintf(
-			cpuall,
-			CPUALL_MAX_SIZE,
-			"cpu "
-			" %" PRIu64 /* user_sum */
-			" %" PRIu64 /* nice_sum */
-			" %" PRIu64 /* system_sum */
-			" %" PRIu64 /* idle_sum */
-			" %" PRIu64 /* iowait_sum */
-			" %" PRIu64 /* irq_sum */
-			" %" PRIu64 /* softirq_sum */
-			" %" PRIu64 /* steal_sum */
-			" %" PRIu64 /* guest_sum */
-			" %" PRIu64 /* guest_nice_sum */
-			"\n",
-			user_sum,
-			nice_sum,
-			system_sum,
-			idle_sum,
-			iowait_sum,
-			irq_sum,
-			softirq_sum,
-			steal_sum,
-			guest_sum,
-			guest_nice_sum);
+		cpuall,
+		CPUALL_MAX_SIZE,
+		"cpu "
+		" %" PRIu64 /* user_sum */
+		" %" PRIu64 /* nice_sum */
+		" %" PRIu64 /* system_sum */
+		" %" PRIu64 /* idle_sum */
+		" %" PRIu64 /* iowait_sum */
+		" %" PRIu64 /* irq_sum */
+		" %" PRIu64 /* softirq_sum */
+		" %" PRIu64 /* steal_sum */
+		" %" PRIu64 /* guest_sum */
+		" %" PRIu64 /* guest_nice_sum */
+		"\n",
+		user_sum,
+		nice_sum,
+		system_sum,
+		idle_sum,
+		iowait_sum,
+		irq_sum,
+		softirq_sum,
+		steal_sum,
+		guest_sum,
+		guest_nice_sum);
 	if (cpuall_len > 0 && cpuall_len < CPUALL_MAX_SIZE) {
 		memcpy(cache, cpuall, cpuall_len);
 		cache += cpuall_len;
@@ -1484,6 +1532,37 @@ static int copy_cached_proc_view(char *buf, size_t size, off_t offset,
 	return (int)length;
 }
 
+static int proc_kernel_identity_read(const char *path, char *buf, size_t size,
+				     off_t offset, struct fuse_file_info *fi)
+{
+	struct fuse_context *context = fuse_get_context();
+	struct file_info *file = INTTYPE_TO_PTR(fi->fh);
+	struct floral_cpu_profile profile;
+	struct lxcfs_opts *opts;
+	pid_t initpid;
+	ssize_t length;
+
+	if (offset)
+		return copy_cached_proc_view(buf, size, offset, file);
+	if (!context)
+		return read_file_fuse(path, buf, size, file);
+
+	opts = (struct lxcfs_opts *)context->private_data;
+	initpid = lookup_initpid_in_store(context->pid);
+	if (initpid <= 1 || is_shared_pidns(initpid))
+		initpid = context->pid;
+	if (floral_profile_load(initpid, opts, &profile) ||
+	    !floral_profile_has_kernel_identity(&profile))
+		return read_file_fuse(path, buf, size, file);
+
+	length = floral_render_kernel_identity(&profile, path, file->buf, file->buflen);
+	if (length < 0 || length >= file->buflen)
+		return read_file_fuse(path, buf, size, file);
+	file->cached = 1;
+	file->size = length;
+	return copy_cached_proc_view(buf, size, 0, file);
+}
+
 static int proc_zoneinfo_read(char *buf, size_t size, off_t offset,
 			      struct fuse_file_info *fi)
 {
@@ -1530,6 +1609,47 @@ static int proc_zoneinfo_read(char *buf, size_t size, off_t offset,
 			  memory.stat.total_inactive_file / page_size,
 			  memory.stat.total_active_file / page_size,
 			  memory.stat.total_unevictable / page_size);
+	if (length < 0 || length >= file->buflen)
+		return -ENOSPC;
+	file->cached = 1;
+	file->size = length;
+	return copy_cached_proc_view(buf, size, 0, file);
+}
+
+static int proc_buddyinfo_read(char *buf, size_t size, off_t offset,
+			       struct fuse_file_info *fi)
+{
+	struct fuse_context *context = fuse_get_context();
+	struct file_info *file = INTTYPE_TO_PTR(fi->fh);
+	struct floral_memory_view memory;
+	uint64_t blocks[11] = { 0 }, free_pages, page_size;
+	long configured_page_size;
+	int length, order;
+
+	if (offset)
+		return copy_cached_proc_view(buf, size, offset, file);
+	if (!context || !load_floral_memory_view(context->pid, &memory))
+		return read_file_fuse(LXC_TYPE_PROC_BUDDYINFO_PATH, buf, size, file);
+
+	configured_page_size = sysconf(_SC_PAGESIZE);
+	page_size = configured_page_size > 0 ? (uint64_t)configured_page_size : 4096;
+	free_pages = (memory.total_bytes - memory.used_bytes) / page_size;
+
+	/* Linux buddyinfo exposes orders 0 through 10. Decompose the cgroup's
+	 * free-page view instead of copying host fragmentation or NUMA data. */
+	for (order = 10; order >= 0; order--) {
+		blocks[order] = free_pages >> order;
+		free_pages -= blocks[order] << order;
+	}
+
+	length = snprintf(file->buf, file->buflen,
+			  "Node 0, zone   Normal "
+			  "%" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64
+			  " %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64
+			  " %" PRIu64 " %" PRIu64 " %" PRIu64 "\n",
+			  blocks[0], blocks[1], blocks[2], blocks[3], blocks[4],
+			  blocks[5], blocks[6], blocks[7], blocks[8], blocks[9],
+			  blocks[10]);
 	if (length < 0 || length >= file->buflen)
 		return -ENOSPC;
 	file->cached = 1;
@@ -1682,7 +1802,7 @@ static int proc_meminfo_read(char *buf, size_t size, off_t offset,
 
 		memset(lbuf, 0, 100);
 		if (startswith(line, "MemTotal:")) {
-			sscanf(line+sizeof("MemTotal:")-1, "%" PRIu64, &hosttotal);
+			sscanf(line + sizeof("MemTotal:") - 1, "%" PRIu64, &hosttotal);
 			if (memlimit == 0)
 				memlimit = hosttotal;
 
@@ -1694,8 +1814,7 @@ static int proc_meminfo_read(char *buf, size_t size, off_t offset,
 			snprintf(lbuf, 100, "MemFree:        %8" PRIu64 " kB\n", memlimit - memusage);
 			printme = lbuf;
 		} else if (startswith(line, "MemAvailable:")) {
-			snprintf(lbuf, 100, "MemAvailable:   %8" PRIu64 " kB\n", memlimit - memusage +
-				(mstat.total_active_file + mstat.total_inactive_file + mstat.slab_reclaimable) / 1024);
+			snprintf(lbuf, 100, "MemAvailable:   %8" PRIu64 " kB\n", memlimit - memusage + (mstat.total_active_file + mstat.total_inactive_file + mstat.slab_reclaimable) / 1024);
 			printme = lbuf;
 		} else if (startswith(line, "SwapTotal:")) {
 			if (wants_swap) {
@@ -1752,13 +1871,13 @@ static int proc_meminfo_read(char *buf, size_t size, off_t offset,
 			snprintf(lbuf, 100, "Active:         %8" PRIu64 " kB\n",
 				 (mstat.total_active_anon +
 				  mstat.total_active_file) /
-				     1024);
+					 1024);
 			printme = lbuf;
 		} else if (startswith(line, "Inactive:")) {
 			snprintf(lbuf, 100, "Inactive:       %8" PRIu64 " kB\n",
 				 (mstat.total_inactive_anon +
 				  mstat.total_inactive_file) /
-				     1024);
+					 1024);
 			printme = lbuf;
 		} else if (startswith(line, "Active(anon):")) {
 			snprintf(lbuf, 100, "Active(anon):   %8" PRIu64 " kB\n",
@@ -1780,21 +1899,21 @@ static int proc_meminfo_read(char *buf, size_t size, off_t offset,
 			snprintf(lbuf, 100, "Unevictable:    %8" PRIu64 " kB\n",
 				 mstat.total_unevictable / 1024);
 			printme = lbuf;
- 		} else if (startswith(line, "Dirty:")) {
+		} else if (startswith(line, "Dirty:")) {
 			snprintf(lbuf, 100, "Dirty:          %8" PRIu64 " kB\n",
 				 mstat.total_dirty / 1024);
 			printme = lbuf;
- 		} else if (startswith(line, "Writeback:")) {
+		} else if (startswith(line, "Writeback:")) {
 			snprintf(lbuf, 100, "Writeback:      %8" PRIu64 " kB\n",
 				 mstat.total_writeback / 1024);
 			printme = lbuf;
- 		} else if (startswith(line, "AnonPages:")) {
+		} else if (startswith(line, "AnonPages:")) {
 			snprintf(lbuf, 100, "AnonPages:      %8" PRIu64 " kB\n",
 				 (mstat.total_active_anon +
 				  mstat.total_inactive_anon - mstat.total_shmem) /
-				     1024);
+					 1024);
 			printme = lbuf;
- 		} else if (startswith(line, "Mapped:")) {
+		} else if (startswith(line, "Mapped:")) {
 			snprintf(lbuf, 100, "Mapped:         %8" PRIu64 " kB\n",
 				 mstat.total_mapped_file / 1024);
 			printme = lbuf;
@@ -1813,13 +1932,13 @@ static int proc_meminfo_read(char *buf, size_t size, off_t offset,
 			printme = lbuf;
 		} else if (startswith(line, "ShmemPmdMapped:")) {
 			snprintf(lbuf, 100, "ShmemPmdMapped: %8" PRIu64 " kB\n", (uint64_t)0);
- 			printme = lbuf;
- 		} else if (startswith(line, "AnonHugePages:")) {
+			printme = lbuf;
+		} else if (startswith(line, "AnonHugePages:")) {
 			snprintf(lbuf, 100, "AnonHugePages:  %8" PRIu64 " kB\n",
 				 mstat.total_rss_huge / 1024);
 			printme = lbuf;
- 		} else {
- 			printme = line;
+		} else {
+			printme = line;
 		}
 
 		l = snprintf(cache, cache_size, "%s", printme);
@@ -1918,7 +2037,7 @@ static int proc_slabinfo_read(char *buf, size_t size, off_t offset,
 }
 
 static int proc_pressure_read(char *buf, size_t size, off_t offset,
-			         struct fuse_file_info *fi)
+			      struct fuse_file_info *fi)
 {
 	__do_free char *cgroup = NULL, *line = NULL;
 	__do_free void *fopen_cache = NULL;
@@ -1931,7 +2050,7 @@ static int proc_pressure_read(char *buf, size_t size, off_t offset,
 	size_t cache_size;
 	char *fallback_path;
 	char *controller;
-	int (*get_pressure_fd)(struct cgroup_ops *ops, const char *cgroup);
+	int (*get_pressure_fd)(struct cgroup_ops * ops, const char *cgroup);
 	pid_t initpid;
 
 	if (offset) {
@@ -2016,8 +2135,9 @@ static int proc_pressure_read(char *buf, size_t size, off_t offset,
 }
 
 static int proc_read_with_personality(int (*do_proc_read)(char *, size_t, off_t,
-			     struct fuse_file_info *), char *buf, size_t size, off_t offset,
-			     struct fuse_file_info *fi)
+							  struct fuse_file_info *),
+				      char *buf, size_t size, off_t offset,
+				      struct fuse_file_info *fi)
 {
 	struct fuse_context *fc = fuse_get_context();
 	__u32 host_personality = liblxcfs_personality(), caller_personality;
@@ -2034,10 +2154,10 @@ static int proc_read_with_personality(int (*do_proc_read)(char *, size_t, off_t,
 		ret = personality(caller_personality);
 		if (ret == -1)
 			return log_error(0, "Call to personality(%d) failed: %s\n",
-				caller_personality, strerror(errno));
+					 caller_personality, strerror(errno));
 
 		lxcfs_debug("task (tid: %d) personality was changed %d -> %d\n",
-				(int)syscall(SYS_gettid), ret, caller_personality);
+			    (int)syscall(SYS_gettid), ret, caller_personality);
 	}
 
 	read_ret = do_proc_read(buf, size, offset, fi);
@@ -2046,10 +2166,10 @@ static int proc_read_with_personality(int (*do_proc_read)(char *, size_t, off_t,
 		ret = personality(host_personality);
 		if (ret == -1)
 			return log_error(0, "Call to personality(%d) failed: %s\n",
-				host_personality, strerror(errno));
+					 host_personality, strerror(errno));
 
 		lxcfs_debug("task (tid: %d) personality was restored %d -> %d\n",
-				(int)syscall(SYS_gettid), ret, host_personality);
+			    (int)syscall(SYS_gettid), ret, host_personality);
 	}
 
 	return read_ret;
@@ -2124,6 +2244,27 @@ __lxcfs_fuse_ops int proc_read(const char *path, char *buf, size_t size,
 
 		return read_file_fuse_with_offset(LXC_TYPE_PROC_VMSTAT_PATH,
 						  buf, size, offset, f);
+	case LXC_TYPE_PROC_BUDDYINFO:
+		if (liblxcfs_functional())
+			return proc_buddyinfo_read(buf, size, offset, fi);
+
+		return read_file_fuse_with_offset(LXC_TYPE_PROC_BUDDYINFO_PATH,
+						  buf, size, offset, f);
+	case LXC_TYPE_PROC_VERSION:
+		if (liblxcfs_functional())
+			return proc_kernel_identity_read(LXC_TYPE_PROC_VERSION_PATH,
+							 buf, size, offset, fi);
+
+		return read_file_fuse_with_offset(LXC_TYPE_PROC_VERSION_PATH,
+						  buf, size, offset, f);
+	case LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE:
+		if (liblxcfs_functional())
+			return proc_kernel_identity_read(
+				LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE_PATH,
+				buf, size, offset, fi);
+
+		return read_file_fuse_with_offset(LXC_TYPE_PROC_SYS_KERNEL_OSRELEASE_PATH,
+						  buf, size, offset, f);
 	case LXC_TYPE_PROC_PRESSURE_IO:
 		if (liblxcfs_functional())
 			return proc_pressure_read(buf, size, offset, fi);
@@ -2149,8 +2290,8 @@ __lxcfs_fuse_ops int proc_read(const char *path, char *buf, size_t size,
 
 typedef enum {
 	POLL_NOTIFY_THREAD_EXITED = 0,
-	POLL_NOTIFY_THREAD_SPAWNED  = 1,
-	POLL_NOTIFY_THREAD_RUNNING  = 2,
+	POLL_NOTIFY_THREAD_SPAWNED = 1,
+	POLL_NOTIFY_THREAD_RUNNING = 2,
 } notify_poll_thread_state_t;
 
 typedef struct psi_trigger {
@@ -2169,10 +2310,10 @@ typedef struct psi_trigger {
 } psi_trigger_t;
 
 /* PSI trigger definitions from the kernel */
-#define WINDOW_MAX_US 10000000	/* Max window size is 10s */
+#define WINDOW_MAX_US 10000000 /* Max window size is 10s */
 
 static int proc_psi_trigger_write(const char *path, const char *buf, size_t size,
-				off_t offset, struct fuse_file_info *fi)
+				  off_t offset, struct fuse_file_info *fi)
 {
 	struct fuse_context *fc = fuse_get_context();
 	bool psi_virtualization_enabled = lxcfs_has_opt(fc->private_data, LXCFS_PSI_POLL_ON);
@@ -2181,7 +2322,7 @@ static int proc_psi_trigger_write(const char *path, const char *buf, size_t size
 	__do_free char *cgroup = NULL;
 	__do_close int fd = -EBADF;
 	char *controller;
-	int (*get_pressure_fd)(struct cgroup_ops *ops, const char *cgroup);
+	int (*get_pressure_fd)(struct cgroup_ops * ops, const char *cgroup);
 	pid_t initpid;
 	char tmpbuf[32];
 	size_t tmpbuf_size;
@@ -2405,7 +2546,7 @@ exit:
 }
 
 static int proc_psi_trigger_poll(const char *path, struct fuse_file_info *fi,
-			       struct fuse_pollhandle *ph, unsigned *reventsp)
+				 struct fuse_pollhandle *ph, unsigned *reventsp)
 {
 	struct file_info *f = INTTYPE_TO_PTR(fi->fh);
 	psi_trigger_t *t = f->private_data;
