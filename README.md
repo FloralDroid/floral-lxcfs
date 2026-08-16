@@ -24,10 +24,13 @@ such as:
 /proc/swaps
 /proc/uptime
 /proc/slabinfo
+/proc/vmstat
+/proc/zoneinfo
 /proc/pressure/io
 /proc/pressure/cpu
 /proc/pressure/memory
 /sys/devices/system/cpu/online
+/sys/devices/system/node/node0/meminfo
 ```
 
 are container aware such that the values displayed (e.g. in `/proc/uptime`)
@@ -119,9 +122,11 @@ docker run --rm -it \
       ubuntu:24.04 /bin/bash
 ```
 
-`--cpuset-cpus` is not required. Floral derives the visible CPU count from the
-container's cgroup CPU quota and cpuset, while memory continues to come from
-the cgroup memory limit.
+Floral derives its visible CPU count from the container's quota and cpuset.
+Quota alone is sufficient for LXCFS, but the kernel-generated
+`/proc/self/status` only reflects a real cpuset. The
+[`examples/run-redroid.sh`](examples/run-redroid.sh) launcher selects the
+requested number of CPUs automatically when that view must also agree.
 
  In a system with swap enabled, the parameter "-u" can be used to set all values in "meminfo" that refer to the swap to 0.
 

@@ -156,7 +156,9 @@ __lxcfs_fuse_ops int proc_getattr(const char *path, struct stat *sb)
 	    strcmp(path, "/proc/diskstats")	== 0 ||
 	    strcmp(path, "/proc/swaps")		== 0 ||
 	    strcmp(path, "/proc/loadavg")	== 0 ||
-	    strcmp(path, "/proc/slabinfo")	== 0) {
+	    strcmp(path, "/proc/slabinfo")	== 0 ||
+	    strcmp(path, "/proc/zoneinfo")	== 0 ||
+	    strcmp(path, "/proc/vmstat")		== 0) {
 		if (liblxcfs_functional()) {
 			if (!can_access_personality())
 				return log_error(-EACCES, RESTRICTED_PERSONALITY_ACCESS_POLICY);
@@ -202,6 +204,8 @@ __lxcfs_fuse_ops int proc_readdir(const char *path, void *buf,
 		    dir_filler(filler, buf, "swaps",		0) != 0 ||
 		    dir_filler(filler, buf, "loadavg",		0) != 0 ||
 		    dir_filler(filler, buf, "slabinfo",		0) != 0 ||
+		    dir_filler(filler, buf, "zoneinfo",		0) != 0 ||
+		    dir_filler(filler, buf, "vmstat",		0) != 0 ||
 		    dirent_filler(filler, path, "pressure", buf, 0) != 0)
 			return -EINVAL;
 		return 0;
@@ -240,6 +244,10 @@ __lxcfs_fuse_ops int proc_open(const char *path, struct fuse_file_info *fi)
 		type = LXC_TYPE_PROC_LOADAVG;
 	else if (strcmp(path, "/proc/slabinfo") == 0)
 		type = LXC_TYPE_PROC_SLABINFO;
+	else if (strcmp(path, "/proc/zoneinfo") == 0)
+		type = LXC_TYPE_PROC_ZONEINFO;
+	else if (strcmp(path, "/proc/vmstat") == 0)
+		type = LXC_TYPE_PROC_VMSTAT;
 	else if (strcmp(path, "/proc/pressure/io") == 0)
 		type = LXC_TYPE_PROC_PRESSURE_IO;
 	else if (strcmp(path, "/proc/pressure/cpu") == 0)
@@ -1358,8 +1366,13 @@ static bool cgroup_parse_memory_stat(const char *cgroup, struct memory_stat *mst
 			sscanf(line, "hierarchical_memory_limit %" PRIu64, &(mstat->hierarchical_memory_limit));
 		} else if (!unified && startswith(line, "hierarchical_memsw_limit")) {
 			sscanf(line, "hierarchical_memsw_limit %" PRIu64, &(mstat->hierarchical_memsw_limit));
-		} else if (startswith(line, unified ? "file" :"total_cache")) {
-			sscanf(line, unified ? "file %" PRIu64 : "total_cache %" PRIu64, &(mstat->total_cache));
+		} else if (startswith(line, unified ? "file " : "total_cache ")) {
+			sscanf(line, unified ? "file %" PRIu64 : "total_cache %" PRIu64,
+			       &(mstat->total_cache));
+		} else if (unified && startswith(line, "anon ")) {
+			sscanf(line, "anon %" PRIu64, &(mstat->total_rss));
+		} else if (unified && startswith(line, "anon_thp ")) {
+			sscanf(line, "anon_thp %" PRIu64, &(mstat->total_rss_huge));
 		} else if (!unified && startswith(line, "total_rss")) {
 			sscanf(line, "total_rss %" PRIu64, &(mstat->total_rss));
 		} else if (!unified && startswith(line, "total_rss_huge")) {
@@ -1368,10 +1381,13 @@ static bool cgroup_parse_memory_stat(const char *cgroup, struct memory_stat *mst
 			sscanf(line, unified ? "shmem %" PRIu64 : "total_shmem %" PRIu64, &(mstat->total_shmem));
 		} else if (startswith(line, unified ? "file_mapped" : "total_mapped_file")) {
 			sscanf(line, unified ? "file_mapped %" PRIu64 : "total_mapped_file %" PRIu64, &(mstat->total_mapped_file));
-		} else if (!unified && startswith(line, "total_dirty")) {
-			sscanf(line, "total_dirty %" PRIu64, &(mstat->total_dirty));
-		} else if (!unified && startswith(line, "total_writeback")) {
-			sscanf(line, "total_writeback %" PRIu64, &(mstat->total_writeback));
+		} else if (startswith(line, unified ? "file_dirty " : "total_dirty ")) {
+			sscanf(line, unified ? "file_dirty %" PRIu64 : "total_dirty %" PRIu64,
+			       &(mstat->total_dirty));
+		} else if (startswith(line, unified ? "file_writeback " : "total_writeback ")) {
+			sscanf(line,
+			       unified ? "file_writeback %" PRIu64 : "total_writeback %" PRIu64,
+			       &(mstat->total_writeback));
 		} else if (!unified && startswith(line, "total_swap")) {
 			sscanf(line, "total_swap %" PRIu64, &(mstat->total_swap));
 		} else if (!unified && startswith(line, "total_pgpgin")) {
@@ -1406,6 +1422,179 @@ static bool cgroup_parse_memory_stat(const char *cgroup, struct memory_stat *mst
 	}
 
 	return true;
+}
+
+struct floral_memory_view {
+	uint64_t total_bytes;
+	uint64_t used_bytes;
+	struct memory_stat stat;
+};
+
+static bool load_floral_memory_view(pid_t caller, struct floral_memory_view *view)
+{
+	__do_free char *cgroup = NULL, *usage_string = NULL;
+	struct sysinfo host = {};
+	uint64_t limit = UINT64_MAX, usage = 0, host_total;
+	pid_t initpid;
+
+	if (!view)
+		return false;
+	memset(view, 0, sizeof(*view));
+
+	initpid = lookup_initpid_in_store(caller);
+	if (initpid <= 1 || is_shared_pidns(initpid))
+		initpid = caller;
+	cgroup = get_pid_cgroup(initpid, "memory");
+	if (!cgroup)
+		return false;
+	prune_init_slice(cgroup);
+
+	if (get_min_memlimit(cgroup, false, &limit) < 0 ||
+	    cgroup_ops->get_memory_current(cgroup_ops, cgroup, &usage_string) < 0 ||
+	    safe_uint64(usage_string, &usage, 10) < 0)
+		return false;
+
+	if (sysinfo(&host) < 0)
+		return false;
+	host_total = (uint64_t)host.totalram * host.mem_unit;
+	if (limit == 0 || limit == UINT64_MAX || limit > host_total)
+		limit = host_total;
+	if (usage > limit)
+		usage = limit;
+
+	view->total_bytes = limit;
+	view->used_bytes = usage;
+	/* Missing memory.stat fields are represented as zero rather than host data. */
+	cgroup_parse_memory_stat(cgroup, &view->stat);
+	return true;
+}
+
+static int copy_cached_proc_view(char *buf, size_t size, off_t offset,
+				 struct file_info *file)
+{
+	size_t available, length;
+
+	if (offset < 0 || offset > file->size)
+		return -EINVAL;
+	if (!file->cached)
+		return 0;
+	available = file->size - offset;
+	length = available > size ? size : available;
+	memcpy(buf, file->buf + offset, length);
+	return (int)length;
+}
+
+static int proc_zoneinfo_read(char *buf, size_t size, off_t offset,
+			      struct fuse_file_info *fi)
+{
+	struct fuse_context *context = fuse_get_context();
+	struct file_info *file = INTTYPE_TO_PTR(fi->fh);
+	struct floral_memory_view memory;
+	uint64_t page_size, total, free, minimum, low, high;
+	long configured_page_size;
+	int length;
+
+	if (offset)
+		return copy_cached_proc_view(buf, size, offset, file);
+	if (!context || !load_floral_memory_view(context->pid, &memory))
+		return read_file_fuse(LXC_TYPE_PROC_ZONEINFO_PATH, buf, size, file);
+
+	configured_page_size = sysconf(_SC_PAGESIZE);
+	page_size = configured_page_size > 0 ? (uint64_t)configured_page_size : 4096;
+	total = memory.total_bytes / page_size;
+	free = (memory.total_bytes - memory.used_bytes) / page_size;
+	minimum = total / 512;
+	low = total / 256;
+	high = total / 128;
+
+	length = snprintf(file->buf, file->buflen,
+			  "Node 0, zone   Normal\n"
+			  "  pages free     %" PRIu64 "\n"
+			  "        min      %" PRIu64 "\n"
+			  "        low      %" PRIu64 "\n"
+			  "        high     %" PRIu64 "\n"
+			  "        spanned  %" PRIu64 "\n"
+			  "        present  %" PRIu64 "\n"
+			  "        managed  %" PRIu64 "\n"
+			  "        protection: (0, 0, 0, 0, 0)\n"
+			  "      nr_free_pages %" PRIu64 "\n"
+			  "      nr_zone_inactive_anon %" PRIu64 "\n"
+			  "      nr_zone_active_anon %" PRIu64 "\n"
+			  "      nr_zone_inactive_file %" PRIu64 "\n"
+			  "      nr_zone_active_file %" PRIu64 "\n"
+			  "      nr_zone_unevictable %" PRIu64 "\n"
+			  "  start_pfn: 0\n",
+			  free, minimum, low, high, total, total, total, free,
+			  memory.stat.total_inactive_anon / page_size,
+			  memory.stat.total_active_anon / page_size,
+			  memory.stat.total_inactive_file / page_size,
+			  memory.stat.total_active_file / page_size,
+			  memory.stat.total_unevictable / page_size);
+	if (length < 0 || length >= file->buflen)
+		return -ENOSPC;
+	file->cached = 1;
+	file->size = length;
+	return copy_cached_proc_view(buf, size, 0, file);
+}
+
+static int proc_vmstat_read(char *buf, size_t size, off_t offset,
+			    struct fuse_file_info *fi)
+{
+	struct fuse_context *context = fuse_get_context();
+	struct file_info *file = INTTYPE_TO_PTR(fi->fh);
+	struct floral_memory_view memory;
+	uint64_t page_size, free;
+	long configured_page_size;
+	int length;
+
+	if (offset)
+		return copy_cached_proc_view(buf, size, offset, file);
+	if (!context || !load_floral_memory_view(context->pid, &memory))
+		return read_file_fuse(LXC_TYPE_PROC_VMSTAT_PATH, buf, size, file);
+
+	configured_page_size = sysconf(_SC_PAGESIZE);
+	page_size = configured_page_size > 0 ? (uint64_t)configured_page_size : 4096;
+	free = (memory.total_bytes - memory.used_bytes) / page_size;
+	length = snprintf(file->buf, file->buflen,
+			  "nr_free_pages %" PRIu64 "\n"
+			  "nr_zone_inactive_anon %" PRIu64 "\n"
+			  "nr_zone_active_anon %" PRIu64 "\n"
+			  "nr_zone_inactive_file %" PRIu64 "\n"
+			  "nr_zone_active_file %" PRIu64 "\n"
+			  "nr_unevictable %" PRIu64 "\n"
+			  "nr_slab_reclaimable %" PRIu64 "\n"
+			  "nr_slab_unreclaimable %" PRIu64 "\n"
+			  "nr_anon_pages %" PRIu64 "\n"
+			  "nr_file_pages %" PRIu64 "\n"
+			  "nr_shmem %" PRIu64 "\n"
+			  "nr_mapped %" PRIu64 "\n"
+			  "nr_dirty %" PRIu64 "\n"
+			  "nr_writeback %" PRIu64 "\n"
+			  "pgpgin %" PRIu64 "\n"
+			  "pgpgout %" PRIu64 "\n"
+			  "pgfault %" PRIu64 "\n"
+			  "pgmajfault %" PRIu64 "\n",
+			  free,
+			  memory.stat.total_inactive_anon / page_size,
+			  memory.stat.total_active_anon / page_size,
+			  memory.stat.total_inactive_file / page_size,
+			  memory.stat.total_active_file / page_size,
+			  memory.stat.total_unevictable / page_size,
+			  memory.stat.slab_reclaimable / page_size,
+			  memory.stat.slab_unreclaimable / page_size,
+			  memory.stat.total_rss / page_size,
+			  memory.stat.total_cache / page_size,
+			  memory.stat.total_shmem / page_size,
+			  memory.stat.total_mapped_file / page_size,
+			  memory.stat.total_dirty / page_size,
+			  memory.stat.total_writeback / page_size,
+			  memory.stat.total_pgpgin, memory.stat.total_pgpgout,
+			  memory.stat.total_pgfault, memory.stat.total_pgmajfault);
+	if (length < 0 || length >= file->buflen)
+		return -ENOSPC;
+	file->cached = 1;
+	file->size = length;
+	return copy_cached_proc_view(buf, size, 0, file);
 }
 
 static int proc_meminfo_read(char *buf, size_t size, off_t offset,
@@ -1922,6 +2111,18 @@ __lxcfs_fuse_ops int proc_read(const char *path, char *buf, size_t size,
 			return proc_slabinfo_read(buf, size, offset, fi);
 
 		return read_file_fuse_with_offset(LXC_TYPE_PROC_SLABINFO_PATH,
+						  buf, size, offset, f);
+	case LXC_TYPE_PROC_ZONEINFO:
+		if (liblxcfs_functional())
+			return proc_zoneinfo_read(buf, size, offset, fi);
+
+		return read_file_fuse_with_offset(LXC_TYPE_PROC_ZONEINFO_PATH,
+						  buf, size, offset, f);
+	case LXC_TYPE_PROC_VMSTAT:
+		if (liblxcfs_functional())
+			return proc_vmstat_read(buf, size, offset, fi);
+
+		return read_file_fuse_with_offset(LXC_TYPE_PROC_VMSTAT_PATH,
 						  buf, size, offset, f);
 	case LXC_TYPE_PROC_PRESSURE_IO:
 		if (liblxcfs_functional())

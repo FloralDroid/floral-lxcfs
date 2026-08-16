@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,6 +33,7 @@ static const struct floral_cpu_core sm8550_cores[] = {
 };
 
 #define FLORAL_CPU_SYS_PREFIX "/sys/devices/system/cpu"
+#define FLORAL_NODE_SYS_PREFIX "/sys/devices/system/node"
 
 static const char *const cpu_root_files[] = {
 	"online", "present", "possible", "offline", "isolated", "kernel_max", "uevent",
@@ -57,6 +59,14 @@ static const char *const cache_files[] = {
 	"allocation_policy", "coherency_line_size", "id", "level", "number_of_sets",
 	"physical_line_partition", "shared_cpu_list", "shared_cpu_map", "size", "type",
 	"ways_of_associativity", "write_policy",
+};
+
+static const char *const node_root_files[] = {
+	"has_cpu", "has_memory", "online", "possible",
+};
+
+static const char *const node_files[] = {
+	"cpulist", "cpumap", "distance", "meminfo", "numastat", "uevent",
 };
 
 static bool profile_is_sm8550(const struct floral_cpu_profile *profile)
@@ -242,7 +252,33 @@ bool floral_sys_manages_path(const char *path)
 
 	return strcmp(path, FLORAL_CPU_SYS_PREFIX) == 0 ||
 	       strncmp(path, FLORAL_CPU_SYS_PREFIX "/",
-		       strlen(FLORAL_CPU_SYS_PREFIX "/")) == 0;
+		       strlen(FLORAL_CPU_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
+		       strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0;
+}
+
+static enum floral_sys_node_type node_sys_node_type(const char *path)
+{
+	const char *suffix;
+
+	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
+		    strlen(FLORAL_NODE_SYS_PREFIX "/")) != 0)
+		return FLORAL_SYS_NONE;
+
+	suffix = path + strlen(FLORAL_NODE_SYS_PREFIX "/");
+	if (string_in_array(suffix, node_root_files,
+			    sizeof(node_root_files) / sizeof(node_root_files[0])))
+		return FLORAL_SYS_FILE;
+	if (strcmp(suffix, "node0") == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(suffix, "node0/", strlen("node0/")) == 0 &&
+	    string_in_array(suffix + strlen("node0/"), node_files,
+			    sizeof(node_files) / sizeof(node_files[0])))
+		return FLORAL_SYS_FILE;
+	return FLORAL_SYS_NONE;
 }
 
 static int parse_cpu_path(const char *path, int cpu_count, int *cpu, const char **suffix)
@@ -300,6 +336,10 @@ enum floral_sys_node_type floral_sys_node_type(const struct floral_cpu_profile *
 	if (!profile || !floral_sys_manages_path(path) || cpu_count < 1 ||
 	    !floral_profile_has_cpu_identity(profile))
 		return FLORAL_SYS_NONE;
+	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
+	    strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
+		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)
+		return node_sys_node_type(path);
 
 	if (strcmp(path, FLORAL_CPU_SYS_PREFIX) == 0)
 		return FLORAL_SYS_DIRECTORY;
@@ -367,6 +407,15 @@ int floral_sys_list_directory(const struct floral_cpu_profile *profile,
 
 	if (emit(context, ".") || emit(context, ".."))
 		return -ENOENT;
+	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0) {
+		if (emit(context, "node0"))
+			return -ENOENT;
+		return emit_array(emit, context, node_root_files,
+				  sizeof(node_root_files) / sizeof(node_root_files[0]));
+	}
+	if (strcmp(path, FLORAL_NODE_SYS_PREFIX "/node0") == 0)
+		return emit_array(emit, context, node_files,
+				  sizeof(node_files) / sizeof(node_files[0]));
 	if (strcmp(path, FLORAL_CPU_SYS_PREFIX) == 0) {
 		for (int i = 0; i < cpu_count; i++) {
 			int length = snprintf(name, sizeof(name), "cpu%d", i);
@@ -566,9 +615,68 @@ static ssize_t render_cache_file(int cpu, int cpu_count, int index, const char *
 	return cursor - buffer;
 }
 
+static ssize_t render_node_file(int cpu_count, uint64_t memory_total_kb,
+				uint64_t memory_free_kb, const char *path,
+				char *buffer, size_t size)
+{
+	const char *file;
+	char *cursor = buffer;
+	size_t remaining = size;
+	uint64_t total_pages = memory_total_kb / 4;
+	uint64_t used_kb = memory_total_kb > memory_free_kb ?
+		memory_total_kb - memory_free_kb : 0;
+
+	if (strncmp(path, FLORAL_NODE_SYS_PREFIX "/node0/",
+		    strlen(FLORAL_NODE_SYS_PREFIX "/node0/")) != 0) {
+		file = path + strlen(FLORAL_NODE_SYS_PREFIX "/");
+		if (string_in_array(file, node_root_files,
+				    sizeof(node_root_files) / sizeof(node_root_files[0])))
+			return snprintf(buffer, size, "0\n");
+		return -ENOENT;
+	}
+
+	file = path + strlen(FLORAL_NODE_SYS_PREFIX "/node0/");
+	if (strcmp(file, "cpulist") == 0)
+		append_cpu_list(&cursor, &remaining, 0, cpu_count - 1);
+	else if (strcmp(file, "cpumap") == 0)
+		append_cpu_map(&cursor, &remaining, 0, cpu_count - 1);
+	else if (strcmp(file, "distance") == 0)
+		append_format(&cursor, &remaining, "10\n");
+	else if (strcmp(file, "meminfo") == 0)
+		append_format(&cursor, &remaining,
+			      "Node 0 MemTotal:       %8" PRIu64 " kB\n"
+			      "Node 0 MemFree:        %8" PRIu64 " kB\n"
+			      "Node 0 MemUsed:        %8" PRIu64 " kB\n",
+			      memory_total_kb, memory_free_kb, used_kb);
+	else if (strcmp(file, "numastat") == 0)
+		append_format(&cursor, &remaining,
+			      "numa_hit %" PRIu64 "\n"
+			      "numa_miss 0\n"
+			      "numa_foreign 0\n"
+			      "interleave_hit 0\n"
+			      "local_node %" PRIu64 "\n"
+			      "other_node 0\n",
+			      total_pages, total_pages);
+	else if (strcmp(file, "uevent") == 0)
+		append_format(&cursor, &remaining, "\n");
+	else
+		return -ENOENT;
+
+	return cursor - buffer;
+}
+
 ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 			       int cpu_count, const char *path,
 			       char *buffer, size_t size)
+{
+	return floral_render_sys_file_with_memory(profile, cpu_count, 0, 0,
+						  path, buffer, size);
+}
+
+ssize_t floral_render_sys_file_with_memory(const struct floral_cpu_profile *profile,
+					   int cpu_count, uint64_t memory_total_kb,
+					   uint64_t memory_free_kb, const char *path,
+					   char *buffer, size_t size)
 {
 	const char *suffix, *file;
 	int cpu, index;
@@ -576,6 +684,11 @@ ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 	if (!buffer || !size ||
 	    floral_sys_node_type(profile, cpu_count, path) != FLORAL_SYS_FILE)
 		return -ENOENT;
+	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
+	    strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
+		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)
+		return render_node_file(cpu_count, memory_total_kb, memory_free_kb,
+					path, buffer, size);
 
 	if (strncmp(path, FLORAL_CPU_SYS_PREFIX "/cpu",
 		    strlen(FLORAL_CPU_SYS_PREFIX "/cpu")) != 0)

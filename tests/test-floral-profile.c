@@ -68,7 +68,10 @@ static void test_sysfs_view(void)
 	       FLORAL_SYS_NONE);
 	assert(floral_sys_manages_path("/sys/devices/system/cpu/cpu8"));
 	assert(floral_sys_manages_path("/sys/devices/system/cpu/vulnerabilities"));
+	assert(floral_sys_manages_path("/sys/devices/system/node/node0/meminfo"));
 	assert(!floral_sys_manages_path("/sys/devices/system/memory"));
+	assert(floral_sys_node_type(&profile, 8, "/sys/devices/system/node/node0") ==
+	       FLORAL_SYS_DIRECTORY);
 
 	length = floral_render_sys_file(&profile, 8,
 		"/sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq",
@@ -90,6 +93,14 @@ static void test_sysfs_view(void)
 	assert(length > 0);
 	output[length] = '\0';
 	assert(strcmp(output, "0000ffff,ffffffff,ffffffff\n") == 0);
+
+	length = floral_render_sys_file_with_memory(&profile, 4, 4194304, 3145728,
+		"/sys/devices/system/node/node0/meminfo", output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strstr(output, "Node 0 MemTotal:        4194304 kB\n"));
+	assert(strstr(output, "Node 0 MemFree:         3145728 kB\n"));
+	assert(strstr(output, "Node 0 MemUsed:         1048576 kB\n"));
 }
 
 static void test_container_profile_load(void)

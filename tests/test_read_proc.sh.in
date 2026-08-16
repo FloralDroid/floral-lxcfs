@@ -20,4 +20,10 @@ echo "==> Testing /proc/stat"
 echo "==> Testing /proc/meminfo"
 "{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/meminfo 3 >/dev/null
 
+echo "==> Testing /proc/zoneinfo"
+"{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/zoneinfo 3 >/dev/null
+
+echo "==> Testing /proc/vmstat"
+"{{LXCFS_BUILD_ROOT}}"/tests/test-read "$DIR"/proc/vmstat 3 >/dev/null
+
 exit 0

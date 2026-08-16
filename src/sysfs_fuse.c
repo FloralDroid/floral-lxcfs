@@ -44,13 +44,19 @@ static off_t get_sysfile_size(const char *which);
 struct floral_sys_context {
 	struct floral_cpu_profile profile;
 	int cpu_count;
+	uint64_t memory_total_kb;
+	uint64_t memory_free_kb;
 };
 
 static bool load_floral_sys_context(struct floral_sys_context *context)
 {
-	__do_free char *cg = NULL, *cpu_cg = NULL, *cpuset = NULL;
+	__do_free char *cg = NULL, *cpu_cg = NULL, *cpuset = NULL,
+		 *memory_cg = NULL, *memory_limit_string = NULL,
+		 *memory_usage_string = NULL;
 	struct fuse_context *fc = fuse_get_context();
 	struct lxcfs_opts *opts;
+	struct sysinfo host = {};
+	uint64_t host_total = 0, host_free = 0, memory_limit = 0, memory_usage = 0;
 	pid_t initpid;
 	int cfs_count = 0;
 
@@ -79,6 +85,30 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 		cfs_count = max_cpu_count(cg, cpu_cg);
 
 	context->cpu_count = floral_visible_cpu_count(&context->profile, cpuset, cfs_count);
+
+	if (sysinfo(&host) == 0) {
+		host_total = (uint64_t)host.totalram * host.mem_unit;
+		host_free = ((uint64_t)host.freeram + host.bufferram) * host.mem_unit;
+	}
+	memory_cg = get_pid_cgroup(initpid, "memory");
+	if (memory_cg) {
+		prune_init_slice(memory_cg);
+		if (cgroup_ops->get_memory_max(cgroup_ops, memory_cg,
+					       &memory_limit_string) >= 0 &&
+		    memory_limit_string)
+			safe_uint64(memory_limit_string, &memory_limit, 10);
+		if (cgroup_ops->get_memory_current(cgroup_ops, memory_cg,
+						   &memory_usage_string) >= 0 &&
+		    memory_usage_string)
+			safe_uint64(memory_usage_string, &memory_usage, 10);
+	}
+	if (!memory_limit || (host_total && memory_limit > host_total))
+		memory_limit = host_total;
+	if (memory_usage > memory_limit)
+		memory_usage = memory_limit;
+	context->memory_total_kb = memory_limit / 1024;
+	context->memory_free_kb = memory_limit ? (memory_limit - memory_usage) / 1024 :
+		host_free / 1024;
 	return true;
 }
 
@@ -106,8 +136,9 @@ static int floral_sys_getattr(const char *path, struct stat *sb)
 	sb->st_nlink = type == FLORAL_SYS_DIRECTORY ? 2 : 1;
 	sb->st_mode = type == FLORAL_SYS_DIRECTORY ? S_IFDIR | 00555 : S_IFREG | 00444;
 	if (type == FLORAL_SYS_FILE) {
-		length = floral_render_sys_file(&context.profile, context.cpu_count,
-						path, contents, sizeof(contents));
+		length = floral_render_sys_file_with_memory(
+				&context.profile, context.cpu_count, context.memory_total_kb,
+				context.memory_free_kb, path, contents, sizeof(contents));
 		if (length < 0)
 			return (int)length;
 		sb->st_size = length;
@@ -220,8 +251,9 @@ static int floral_sys_read(const char *path, char *buf, size_t size,
 		return -EIO;
 
 	if (!info->cached) {
-		length = floral_render_sys_file(&context.profile, context.cpu_count,
-						path, info->buf, info->buflen);
+		length = floral_render_sys_file_with_memory(
+				&context.profile, context.cpu_count, context.memory_total_kb,
+				context.memory_free_kb, path, info->buf, info->buflen);
 		if (length < 0)
 			return (int)length;
 		info->size = (int)length;
@@ -596,6 +628,13 @@ __lxcfs_fuse_ops int sys_readdir(const char *path, void *buf,
 		    dir_filler(filler, buf, "..", 0) != 0 ||
 		    dirent_filler(filler, path, "cpu", buf, 0) != 0)
 			return -ENOENT;
+		{
+			struct floral_sys_context context;
+
+			if (load_floral_sys_context(&context) &&
+			    dirent_filler(filler, path, "node", buf, 0) != 0)
+				return -ENOENT;
+		}
 		return 0;
 	case LXC_TYPE_SYS_DEVICES_SYSTEM_CPU:
 		if (dir_filler(filler, buf, ".",	0) != 0 ||

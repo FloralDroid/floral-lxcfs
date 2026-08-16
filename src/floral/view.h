@@ -7,6 +7,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #include "profile.h"
@@ -33,5 +34,9 @@ int floral_sys_list_directory(const struct floral_cpu_profile *profile,
 ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 			       int cpu_count, const char *path,
 			       char *buffer, size_t size);
+ssize_t floral_render_sys_file_with_memory(const struct floral_cpu_profile *profile,
+					   int cpu_count, uint64_t memory_total_kb,
+					   uint64_t memory_free_kb, const char *path,
+					   char *buffer, size_t size);
 
 #endif /* __LXCFS_FLORAL_VIEW_H */
