@@ -1,9 +1,9 @@
 # floral-lxcfs
 
 `floral-lxcfs` is the FloralDroid-specific LXCFS branch. It keeps upstream
-cgroup-based resource virtualization and adds per-container Android CPU
-identity views. Its executable, shared module, service, runtime directory and
-mountpoint are separate from an official LXCFS installation.
+cgroup-based resource virtualization and adds per-container Android CPU,
+kernel and DMI identity views. Its executable, shared module, service, runtime
+directory and mountpoint are separate from an official LXCFS installation.
 
 See [doc/floral-lxcfs.md](doc/floral-lxcfs.md) for the supported profile keys
 and Docker integration.
@@ -34,6 +34,7 @@ such as:
 /proc/pressure/memory
 /sys/devices/system/cpu/online
 /sys/devices/system/node/node0/meminfo
+/sys/devices/virtual/dmi/id
 /sys/block/zram0
 ```
 
@@ -124,6 +125,7 @@ docker run --rm -it \
       --mount type=bind,src=/var/lib/floral-lxcfs/proc/stat,dst=/proc/stat,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/block,dst=/sys/block,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/virtual/dmi/id,dst=/sys/devices/virtual/dmi/id,readonly \
       ubuntu:24.04 /bin/bash
 ```
 

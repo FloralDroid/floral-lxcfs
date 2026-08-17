@@ -35,6 +35,9 @@ static const struct floral_cpu_core sm8550_cores[] = {
 #define FLORAL_CPU_SYS_PREFIX "/sys/devices/system/cpu"
 #define FLORAL_NODE_SYS_PREFIX "/sys/devices/system/node"
 #define FLORAL_BLOCK_SYS_PREFIX "/sys/block"
+#define FLORAL_VIRTUAL_SYS_PREFIX "/sys/devices/virtual"
+#define FLORAL_DMI_SYS_PREFIX FLORAL_VIRTUAL_SYS_PREFIX "/dmi"
+#define FLORAL_DMI_ID_SYS_PREFIX FLORAL_DMI_SYS_PREFIX "/id"
 
 static const char *const cpu_root_files[] = {
 	"online",
@@ -127,6 +130,17 @@ static const char *const block_files[] = {
 	"uevent",
 	"comp_algorithm",
 	"writeback",
+};
+
+static const char *const dmi_files[] = {
+	"sys_vendor",
+	"product_name",
+	"product_version",
+	"product_serial",
+	"board_vendor",
+	"board_name",
+	"board_version",
+	"board_serial",
 };
 
 static bool profile_is_sm8550(const struct floral_cpu_profile *profile)
@@ -343,7 +357,49 @@ bool floral_sys_manages_path(const char *path)
 		       strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0 ||
 	       strcmp(path, FLORAL_BLOCK_SYS_PREFIX) == 0 ||
 	       strncmp(path, FLORAL_BLOCK_SYS_PREFIX "/",
-		       strlen(FLORAL_BLOCK_SYS_PREFIX "/")) == 0;
+		       strlen(FLORAL_BLOCK_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0 ||
+	       strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_DMI_SYS_PREFIX "/",
+		       strlen(FLORAL_DMI_SYS_PREFIX "/")) == 0;
+}
+
+static const char *dmi_file_value(const struct floral_cpu_profile *profile,
+				  const char *file)
+{
+	if (strcmp(file, "sys_vendor") == 0 || strcmp(file, "board_vendor") == 0)
+		return profile->dmi.manufacturer;
+	if (strcmp(file, "product_name") == 0)
+		return profile->dmi.model;
+	if (strcmp(file, "board_name") == 0)
+		return profile->dmi.board;
+	if (strcmp(file, "product_serial") == 0 || strcmp(file, "board_serial") == 0)
+		return profile->dmi.serial[0] ? profile->dmi.serial : NULL;
+	if (strcmp(file, "product_version") == 0 || strcmp(file, "board_version") == 0)
+		return profile->dmi.hardware_revision[0] ?
+		       profile->dmi.hardware_revision : NULL;
+
+	return NULL;
+}
+
+static enum floral_sys_node_type dmi_sys_node_type(
+					const struct floral_cpu_profile *profile,
+					const char *path)
+{
+	const char *file;
+
+	if (!floral_profile_has_dmi_identity(profile))
+		return FLORAL_SYS_NONE;
+	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0 ||
+	    strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
+	    strcmp(path, FLORAL_DMI_ID_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(path, FLORAL_DMI_ID_SYS_PREFIX "/",
+		    strlen(FLORAL_DMI_ID_SYS_PREFIX "/")) != 0)
+		return FLORAL_SYS_NONE;
+
+	file = path + strlen(FLORAL_DMI_ID_SYS_PREFIX "/");
+	return dmi_file_value(profile, file) ? FLORAL_SYS_FILE : FLORAL_SYS_NONE;
 }
 
 static enum floral_sys_node_type block_sys_node_type(const char *path)
@@ -441,8 +497,14 @@ enum floral_sys_node_type floral_sys_node_type(const struct floral_cpu_profile *
 	const char *suffix;
 	int cpu, index;
 
-	if (!profile || !floral_sys_manages_path(path) || cpu_count < 1 ||
-	    !floral_profile_has_cpu_identity(profile))
+	if (!profile || !floral_sys_manages_path(path))
+		return FLORAL_SYS_NONE;
+	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0 ||
+	    strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
+	    strncmp(path, FLORAL_DMI_SYS_PREFIX "/",
+		    strlen(FLORAL_DMI_SYS_PREFIX "/")) == 0)
+		return dmi_sys_node_type(profile, path);
+	if (cpu_count < 1 || !floral_profile_has_cpu_identity(profile))
 		return FLORAL_SYS_NONE;
 	if (strncmp(path, FLORAL_BLOCK_SYS_PREFIX,
 		    strlen(FLORAL_BLOCK_SYS_PREFIX)) == 0)
@@ -518,6 +580,18 @@ int floral_sys_list_directory(const struct floral_cpu_profile *profile,
 
 	if (emit(context, ".") || emit(context, ".."))
 		return -ENOENT;
+	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0)
+		return emit(context, "dmi");
+	if (strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0)
+		return emit(context, "id");
+	if (strcmp(path, FLORAL_DMI_ID_SYS_PREFIX) == 0) {
+		for (size_t i = 0; i < sizeof(dmi_files) / sizeof(dmi_files[0]); i++) {
+			if (dmi_file_value(profile, dmi_files[i]) &&
+			    emit(context, dmi_files[i]))
+				return -ENOENT;
+		}
+		return 0;
+	}
 	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0) {
 		if (emit(context, "node0"))
 			return -ENOENT;
@@ -851,6 +925,13 @@ ssize_t floral_render_sys_file_with_memory_and_swap(
 	if (!buffer || !size ||
 	    floral_sys_node_type(profile, cpu_count, path) != FLORAL_SYS_FILE)
 		return -ENOENT;
+	if (strncmp(path, FLORAL_DMI_ID_SYS_PREFIX "/",
+		    strlen(FLORAL_DMI_ID_SYS_PREFIX "/")) == 0) {
+		const char *value = dmi_file_value(
+			profile, path + strlen(FLORAL_DMI_ID_SYS_PREFIX "/"));
+
+		return value ? snprintf(buffer, size, "%s\n", value) : -ENOENT;
+	}
 	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
 	    strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
 		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)

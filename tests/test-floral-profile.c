@@ -18,7 +18,9 @@ static const char profile_data[] =
 	"# OPPO Find X6 Pro\n"
 	"version=1\n"
 	"brand=OPPO\n"
+	"manufacturer=OPPO\n"
 	"model=Find X6 Pro\n"
+	"board=kalama\n"
 	"soc_model=SM8550\n"
 	"cpu_vendor=Qualcomm\n"
 	"cpu_model=ARMv8 Processor rev 1 (v8l)\n"
@@ -26,7 +28,9 @@ static const char profile_data[] =
 	"cpu_feature_view=sm8550\n"
 	"cpu_cores=auto\n"
 	"kernel_release=5.10.66-android12-9-g123456789abc\n"
-	"kernel_version=#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022\n";
+	"kernel_version=#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022\n"
+	"serial=PGEM10FLORAL0001\n"
+	"hardware_revision=EVT1\n";
 
 static void test_parser_and_cpuinfo(void)
 {
@@ -41,6 +45,12 @@ static void test_parser_and_cpuinfo(void)
 	assert(floral_profile_has_cpu_identity(&profile));
 	assert(strcmp(profile.soc_model, "SM8550") == 0);
 	assert(floral_profile_has_kernel_identity(&profile));
+	assert(floral_profile_has_dmi_identity(&profile));
+	assert(strcmp(profile.dmi.manufacturer, "OPPO") == 0);
+	assert(strcmp(profile.dmi.model, "Find X6 Pro") == 0);
+	assert(strcmp(profile.dmi.board, "kalama") == 0);
+	assert(strcmp(profile.dmi.serial, "PGEM10FLORAL0001") == 0);
+	assert(strcmp(profile.dmi.hardware_revision, "EVT1") == 0);
 
 	count = floral_visible_cpu_count(&profile, "0-79", 8);
 	assert(count == 8);
@@ -97,6 +107,39 @@ static void test_sysfs_view(void)
 	       FLORAL_SYS_FILE);
 	assert(floral_sys_node_type(&profile, 8, "/sys/devices/system/node/node0") ==
 	       FLORAL_SYS_DIRECTORY);
+	assert(floral_sys_manages_path("/sys/devices/virtual/dmi/id/product_name"));
+	assert(!floral_sys_manages_path("/sys/devices/virtual/net"));
+	assert(floral_sys_node_type(&profile, 8, "/sys/devices/virtual") ==
+	       FLORAL_SYS_DIRECTORY);
+	assert(floral_sys_node_type(&profile, 8, "/sys/devices/virtual/dmi/id") ==
+	       FLORAL_SYS_DIRECTORY);
+	assert(floral_sys_node_type(&profile, 8,
+				    "/sys/devices/virtual/dmi/id/product_serial") ==
+	       FLORAL_SYS_FILE);
+	assert(floral_sys_node_type(&profile, 8,
+				    "/sys/devices/virtual/dmi/id/product_uuid") ==
+	       FLORAL_SYS_NONE);
+
+	length = floral_render_sys_file(&profile, 8,
+					"/sys/devices/virtual/dmi/id/sys_vendor",
+					output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "OPPO\n") == 0);
+
+	length = floral_render_sys_file(&profile, 8,
+					"/sys/devices/virtual/dmi/id/board_name",
+					output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "kalama\n") == 0);
+
+	length = floral_render_sys_file(&profile, 8,
+					"/sys/devices/virtual/dmi/id/product_version",
+					output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "EVT1\n") == 0);
 
 	length = floral_render_sys_file(&profile, 8,
 					"/sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq",
@@ -158,6 +201,33 @@ static void test_container_profile_load(void)
 	assert(unlink(path) == 0);
 }
 
+static void test_default_dmi_identity(void)
+{
+	struct floral_cpu_profile profile;
+	char data[] = "version=1\n";
+	char output[128];
+	ssize_t length;
+
+	assert(floral_profile_parse(data, &profile) == 0);
+	assert(!floral_profile_has_cpu_identity(&profile));
+	assert(floral_profile_has_dmi_identity(&profile));
+	assert(!profile.dmi.serial[0]);
+	assert(!profile.dmi.hardware_revision[0]);
+	assert(floral_sys_node_type(&profile, 0,
+				    "/sys/devices/virtual/dmi/id/sys_vendor") ==
+	       FLORAL_SYS_FILE);
+	assert(floral_sys_node_type(&profile, 0,
+				    "/sys/devices/virtual/dmi/id/product_serial") ==
+	       FLORAL_SYS_NONE);
+
+	length = floral_render_sys_file(&profile, 0,
+					"/sys/devices/virtual/dmi/id/product_name",
+					output, sizeof(output));
+	assert(length > 0);
+	output[length] = '\0';
+	assert(strcmp(output, "Floral F12\n") == 0);
+}
+
 static void test_rejects_invalid_profiles(void)
 {
 	struct floral_cpu_profile profile;
@@ -166,12 +236,14 @@ static void test_rejects_invalid_profiles(void)
 	char invalid_version[] = "version=2\nsoc_model=SM8550\n";
 	char invalid_key[] = "version=1\ncpu_model=a\001b\n";
 	char empty_known[] = "version=1\nsoc_model=\n";
+	char duplicate_dmi[] = "version=1\nmodel=a\nmodel=b\n";
 
 	assert(floral_profile_parse(duplicate, &profile) == -EINVAL);
 	assert(floral_profile_parse(invalid_count, &profile) == -EINVAL);
 	assert(floral_profile_parse(invalid_version, &profile) == -EINVAL);
 	assert(floral_profile_parse(invalid_key, &profile) == -EINVAL);
 	assert(floral_profile_parse(empty_known, &profile) == -EINVAL);
+	assert(floral_profile_parse(duplicate_dmi, &profile) == -EINVAL);
 }
 
 int main(void)
@@ -179,6 +251,7 @@ int main(void)
 	test_parser_and_cpuinfo();
 	test_sysfs_view();
 	test_container_profile_load();
+	test_default_dmi_identity();
 	test_rejects_invalid_profiles();
 	return EXIT_SUCCESS;
 }

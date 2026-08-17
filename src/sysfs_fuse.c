@@ -75,9 +75,18 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 	initpid = lookup_initpid_in_store(fc->pid);
 	if (initpid <= 1 || is_shared_pidns(initpid))
 		initpid = fc->pid;
-	if (floral_profile_load(initpid, opts, &context->profile) ||
-	    !floral_profile_has_cpu_identity(&context->profile))
+	if (floral_profile_load(initpid, opts, &context->profile)) {
+		memset(&context->profile, 0, sizeof(context->profile));
+		context->profile.version = 1;
+		floral_profile_set_default_dmi_identity(&context->profile);
+	}
+	if (!floral_profile_has_cpu_identity(&context->profile) &&
+	    !floral_profile_has_dmi_identity(&context->profile))
 		return false;
+	if (!floral_profile_has_cpu_identity(&context->profile)) {
+		context->cpu_count = 1;
+		return true;
+	}
 
 	cg = get_pid_cgroup(initpid, "cpuset");
 	cpu_cg = get_pid_cgroup(initpid, "cpu");
@@ -661,6 +670,14 @@ __lxcfs_fuse_ops int sys_readdir(const char *path, void *buf,
 		    dir_filler(filler, buf, "..", 0) != 0 ||
 		    dirent_filler(filler, path, "system", buf, 0) != 0)
 			return -ENOENT;
+		{
+			struct floral_sys_context context;
+
+			if (load_floral_sys_context(&context) &&
+			    floral_profile_has_dmi_identity(&context.profile) &&
+			    dirent_filler(filler, path, "virtual", buf, 0) != 0)
+				return -ENOENT;
+		}
 		return 0;
 	case LXC_TYPE_SYS_DEVICES_SYSTEM:
 		if (dir_filler(filler, buf, ".", 0) != 0 ||

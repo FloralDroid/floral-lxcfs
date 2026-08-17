@@ -83,9 +83,12 @@ regular file, and the file is limited to 8 KiB. A different in-container path
 can be selected with `--device-profile=/absolute/path` or at build time with
 `-Ddevice-profile-path=/absolute/path`.
 
-Floral LXCFS ignores profile keys that it does not consume. For the current
-OPPO Find X6 Pro profile, `version` and `soc_model` are sufficient to select
-the built-in CPU view. The remaining fields are optional overrides:
+The file remains a complete AOSP identity profile. Floral LXCFS ignores keys
+that it does not consume and additionally reads CPU, kernel and DMI identity
+from the same file. See `examples/device.prop` and
+`examples/device.oppo-find-x6-pro.prop` for complete shared profiles. For the
+current OPPO Find X6 Pro profile, `version` and `soc_model` are sufficient to
+select the built-in CPU view. The following keys are optional LXCFS overrides:
 
 ```properties
 version=1
@@ -109,8 +112,25 @@ SoC name and the CPU topology template differ. `cpu_vendor`, `cpu_model`, and
 `/proc/sys/kernel/osrelease` and `/proc/version` views. If a valid value is not
 available for a path, that path falls back to the host view.
 
-If the file is absent, invalid, or has no CPU identity fields, Floral falls
-back to upstream LXCFS behavior instead of inventing an identity.
+The canonical DMI directory is `/sys/devices/virtual/dmi/id`. Floral maps only
+these newline-terminated, read-only files:
+
+| DMI file | Profile key |
+| --- | --- |
+| `sys_vendor`, `board_vendor` | `manufacturer` |
+| `product_name` | `model` |
+| `board_name` | `board` |
+| `product_serial`, `board_serial` | `serial` |
+| `product_version`, `board_version` | `hardware_revision` |
+
+Floral does not synthesize `product_uuid`, BIOS, chassis, `modalias`, or
+`uevent` data. `/sys/class/dmi/id` remains the kernel-provided symlink to the
+canonical directory and is not mounted separately.
+
+If the profile is absent or invalid, CPU and kernel identity fall back to
+upstream LXCFS behavior. The DMI directory instead uses the non-unique Floral
+manufacturer, model and board defaults so a configured DMI mount cannot expose
+the host. Default DMI identity deliberately omits serial and revision files.
 
 The same memory cgroup also backs Floral's synthetic `/proc/zoneinfo`,
 `/proc/vmstat`, `/proc/buddyinfo`, and single-node
@@ -157,6 +177,7 @@ docker run --rm -it \
     --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
     --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/node,dst=/sys/devices/system/node,readonly \
     --mount type=bind,src=/var/lib/floral-lxcfs/sys/block,dst=/sys/block,readonly \
+    --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/virtual/dmi/id,dst=/sys/devices/virtual/dmi/id,readonly \
     redroid/redroid:12.0.0-latest
 ```
 

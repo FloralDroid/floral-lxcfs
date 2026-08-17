@@ -77,6 +77,19 @@ static bool valid_cpu_count(const char *value)
 	return !errno && end && !*end && count >= 1 && count <= 256;
 }
 
+void floral_profile_set_default_dmi_identity(struct floral_cpu_profile *profile)
+{
+	if (!profile)
+		return;
+
+	memset(&profile->dmi, 0, sizeof(profile->dmi));
+	strlcpy(profile->dmi.manufacturer, "FloralDroid",
+		sizeof(profile->dmi.manufacturer));
+	strlcpy(profile->dmi.model, "Floral F12", sizeof(profile->dmi.model));
+	strlcpy(profile->dmi.board, "floral_f12", sizeof(profile->dmi.board));
+	/* Serial and revision remain absent unless the per-container profile sets them. */
+}
+
 int floral_profile_parse(char *data, struct floral_cpu_profile *profile)
 {
 	bool version_seen = false;
@@ -90,12 +103,20 @@ int floral_profile_parse(char *data, struct floral_cpu_profile *profile)
 		{ "soc_model", profile->soc_model, sizeof(profile->soc_model), false },
 		{ "kernel_release", profile->kernel_release, sizeof(profile->kernel_release), false },
 		{ "kernel_version", profile->kernel_version, sizeof(profile->kernel_version), false },
+		{ "manufacturer", profile->dmi.manufacturer, sizeof(profile->dmi.manufacturer), false },
+		{ "model", profile->dmi.model, sizeof(profile->dmi.model), false },
+		{ "board", profile->dmi.board, sizeof(profile->dmi.board), false },
+		{ "serial", profile->dmi.serial, sizeof(profile->dmi.serial), false },
+		{ "hardware_revision", profile->dmi.hardware_revision,
+		  sizeof(profile->dmi.hardware_revision), false },
 	};
 
 	if (!data || !profile)
 		return -EINVAL;
 
 	memset(profile, 0, sizeof(*profile));
+	/* DMI defaults mask host identity even when optional keys are omitted. */
+	floral_profile_set_default_dmi_identity(profile);
 
 	while ((line = strsep(&data, "\n"))) {
 		char *equals, *key, *value;
@@ -256,4 +277,13 @@ bool floral_profile_has_kernel_identity(const struct floral_cpu_profile *profile
 		return false;
 
 	return profile->kernel_release[0] || profile->kernel_version[0];
+}
+
+bool floral_profile_has_dmi_identity(const struct floral_cpu_profile *profile)
+{
+	if (!profile || profile->version != 1)
+		return false;
+
+	return profile->dmi.manufacturer[0] && profile->dmi.model[0] &&
+	       profile->dmi.board[0];
 }
