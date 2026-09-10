@@ -78,7 +78,7 @@ static bool load_floral_sys_context(struct floral_sys_context *context)
 	if (floral_profile_load(initpid, opts, &context->profile)) {
 		memset(&context->profile, 0, sizeof(context->profile));
 		context->profile.version = 1;
-		floral_profile_set_default_dmi_identity(&context->profile);
+		floral_profile_set_default_identity(&context->profile);
 	}
 	if (!floral_profile_has_cpu_identity(&context->profile) &&
 	    !floral_profile_has_dmi_identity(&context->profile))
@@ -172,7 +172,12 @@ static int floral_sys_getattr(const char *path, struct stat *sb)
 	sb->st_uid = sb->st_gid = 0;
 	sb->st_atim = sb->st_mtim = sb->st_ctim = now;
 	sb->st_nlink = type == FLORAL_SYS_DIRECTORY ? 2 : 1;
-	sb->st_mode = type == FLORAL_SYS_DIRECTORY ? S_IFDIR | 00555 : S_IFREG | 00444;
+	if (type == FLORAL_SYS_DIRECTORY)
+		sb->st_mode = S_IFDIR | 00555;
+	else if (type == FLORAL_SYS_SYMLINK)
+		sb->st_mode = S_IFLNK | 00777;
+	else
+		sb->st_mode = S_IFREG | 00444;
 	if (type == FLORAL_SYS_FILE) {
 		if (strncmp(path, "/sys/block/zram0/",
 			    STRLITERALLEN("/sys/block/zram0/")) == 0) {
@@ -186,6 +191,12 @@ static int floral_sys_getattr(const char *path, struct stat *sb)
 					&context.profile, context.cpu_count, context.memory_total_kb,
 					context.memory_free_kb, path, contents, sizeof(contents));
 		}
+		if (length < 0)
+			return (int)length;
+		sb->st_size = length;
+	} else if (type == FLORAL_SYS_SYMLINK) {
+		length = floral_render_sys_symlink(&context.profile, context.cpu_count,
+						 path, contents, sizeof(contents));
 		if (length < 0)
 			return (int)length;
 		sb->st_size = length;
@@ -254,6 +265,8 @@ static int floral_sys_emit(void *opaque, const char *name)
 	}
 	if (type == FLORAL_SYS_DIRECTORY)
 		st.st_mode = S_IFDIR | 0555;
+	else if (type == FLORAL_SYS_SYMLINK)
+		st.st_mode = S_IFLNK | 0777;
 
 	return DIR_FILLER(context->filler, context->buffer, name, &st, 0);
 }
@@ -714,17 +727,34 @@ __lxcfs_fuse_ops int sys_readdir(const char *path, void *buf,
 
 __lxcfs_fuse_ops int sys_readlink(const char *path, char *buf, size_t size)
 {
+	struct floral_sys_context context;
 	ssize_t ret;
 
 	if (!liblxcfs_functional())
 		return -EIO;
+	if (load_floral_sys_context(&context) && floral_sys_manages_path(path)) {
+		enum floral_sys_node_type type =
+			floral_sys_node_type(&context.profile, context.cpu_count, path);
+
+		if (type == FLORAL_SYS_NONE)
+			return -ENOENT;
+		if (type != FLORAL_SYS_SYMLINK)
+			return -EINVAL;
+		ret = floral_render_sys_symlink(&context.profile, context.cpu_count,
+						path, buf, size);
+		if (ret < 0)
+			return (int)ret;
+		if ((size_t)ret >= size)
+			return -ENAMETOOLONG;
+		return 0;
+	}
 
 	ret = readlink(path, buf, size);
 	if (ret < 0)
 		return -errno;
 
-	if ((size_t)ret > size)
-		return -1;
+	if ((size_t)ret >= size)
+		return -ENAMETOOLONG;
 
 	buf[ret] = '\0';
 

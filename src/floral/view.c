@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "view.h"
 
@@ -38,6 +39,9 @@ static const struct floral_cpu_core sm8550_cores[] = {
 #define FLORAL_VIRTUAL_SYS_PREFIX "/sys/devices/virtual"
 #define FLORAL_DMI_SYS_PREFIX FLORAL_VIRTUAL_SYS_PREFIX "/dmi"
 #define FLORAL_DMI_ID_SYS_PREFIX FLORAL_DMI_SYS_PREFIX "/id"
+#define FLORAL_THERMAL_SYS_PREFIX FLORAL_VIRTUAL_SYS_PREFIX "/thermal"
+#define FLORAL_CLASS_THERMAL_SYS_PREFIX "/sys/class/thermal"
+#define FLORAL_CLASS_HWMON_SYS_PREFIX "/sys/class/hwmon"
 
 static const char *const cpu_root_files[] = {
 	"online",
@@ -141,6 +145,31 @@ static const char *const dmi_files[] = {
 	"board_name",
 	"board_version",
 	"board_serial",
+};
+
+static const char *const thermal_files[] = {
+	"available_policies",
+	"integral_cutoff",
+	"k_d",
+	"k_i",
+	"k_po",
+	"k_pu",
+	"offset",
+	"passive",
+	"policy",
+	"slope",
+	"sustainable_power",
+	"temp",
+	"type",
+	"uevent",
+};
+
+static const char *const thermal_power_files[] = {
+	"autosuspend_delay_ms",
+	"control",
+	"runtime_active_time",
+	"runtime_status",
+	"runtime_suspended_time",
 };
 
 static bool profile_is_sm8550(const struct floral_cpu_profile *profile)
@@ -361,7 +390,56 @@ bool floral_sys_manages_path(const char *path)
 	       strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0 ||
 	       strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
 	       strncmp(path, FLORAL_DMI_SYS_PREFIX "/",
-		       strlen(FLORAL_DMI_SYS_PREFIX "/")) == 0;
+		       strlen(FLORAL_DMI_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_THERMAL_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_THERMAL_SYS_PREFIX "/",
+		       strlen(FLORAL_THERMAL_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX "/",
+		       strlen(FLORAL_CLASS_THERMAL_SYS_PREFIX "/")) == 0 ||
+	       strcmp(path, FLORAL_CLASS_HWMON_SYS_PREFIX) == 0 ||
+	       strncmp(path, FLORAL_CLASS_HWMON_SYS_PREFIX "/",
+		       strlen(FLORAL_CLASS_HWMON_SYS_PREFIX "/")) == 0;
+}
+
+static enum floral_sys_node_type thermal_device_node_type(const char *path)
+{
+	const char *suffix;
+
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(path, FLORAL_THERMAL_SYS_PREFIX "/",
+		    strlen(FLORAL_THERMAL_SYS_PREFIX "/")) != 0)
+		return FLORAL_SYS_NONE;
+	suffix = path + strlen(FLORAL_THERMAL_SYS_PREFIX "/");
+	if (strcmp(suffix, "thermal_zone0") == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strncmp(suffix, "thermal_zone0/", strlen("thermal_zone0/")) != 0)
+		return FLORAL_SYS_NONE;
+
+	suffix += strlen("thermal_zone0/");
+	if (strcmp(suffix, "power") == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strcmp(suffix, "subsystem") == 0)
+		return FLORAL_SYS_SYMLINK;
+	if (string_in_array(suffix, thermal_files,
+			    sizeof(thermal_files) / sizeof(thermal_files[0])))
+		return FLORAL_SYS_FILE;
+	if (strncmp(suffix, "power/", strlen("power/")) == 0 &&
+	    string_in_array(suffix + strlen("power/"), thermal_power_files,
+			    sizeof(thermal_power_files) /
+			    sizeof(thermal_power_files[0])))
+		return FLORAL_SYS_FILE;
+	return FLORAL_SYS_NONE;
+}
+
+static enum floral_sys_node_type thermal_class_node_type(const char *path)
+{
+	if (strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX "/thermal_zone0") == 0)
+		return FLORAL_SYS_SYMLINK;
+	return FLORAL_SYS_NONE;
 }
 
 static const char *dmi_file_value(const struct floral_cpu_profile *profile,
@@ -499,8 +577,19 @@ enum floral_sys_node_type floral_sys_node_type(const struct floral_cpu_profile *
 
 	if (!profile || !floral_sys_manages_path(path))
 		return FLORAL_SYS_NONE;
-	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0 ||
-	    strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
+	if (strcmp(path, FLORAL_CLASS_HWMON_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX) == 0 ||
+	    strncmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX "/",
+		    strlen(FLORAL_CLASS_THERMAL_SYS_PREFIX "/")) == 0)
+		return thermal_class_node_type(path);
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX) == 0 ||
+	    strncmp(path, FLORAL_THERMAL_SYS_PREFIX "/",
+		    strlen(FLORAL_THERMAL_SYS_PREFIX "/")) == 0)
+		return thermal_device_node_type(path);
+	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0)
+		return FLORAL_SYS_DIRECTORY;
+	if (strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0 ||
 	    strncmp(path, FLORAL_DMI_SYS_PREFIX "/",
 		    strlen(FLORAL_DMI_SYS_PREFIX "/")) == 0)
 		return dmi_sys_node_type(profile, path);
@@ -580,8 +669,27 @@ int floral_sys_list_directory(const struct floral_cpu_profile *profile,
 
 	if (emit(context, ".") || emit(context, ".."))
 		return -ENOENT;
-	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0)
-		return emit(context, "dmi");
+	if (strcmp(path, FLORAL_VIRTUAL_SYS_PREFIX) == 0) {
+		if (emit(context, "dmi"))
+			return -ENOENT;
+		return emit(context, "thermal");
+	}
+	if (strcmp(path, FLORAL_CLASS_HWMON_SYS_PREFIX) == 0)
+		return 0;
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX) == 0 ||
+	    strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX) == 0)
+		return emit(context, "thermal_zone0");
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX "/thermal_zone0") == 0) {
+		if (emit_array(emit, context, thermal_files,
+			       sizeof(thermal_files) / sizeof(thermal_files[0])) ||
+		    emit(context, "power"))
+			return -ENOENT;
+		return emit(context, "subsystem");
+	}
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX "/thermal_zone0/power") == 0)
+		return emit_array(emit, context, thermal_power_files,
+				  sizeof(thermal_power_files) /
+				  sizeof(thermal_power_files[0]));
 	if (strcmp(path, FLORAL_DMI_SYS_PREFIX) == 0)
 		return emit(context, "id");
 	if (strcmp(path, FLORAL_DMI_ID_SYS_PREFIX) == 0) {
@@ -894,6 +1002,62 @@ static ssize_t render_block_file(uint64_t swap_total_kb, uint64_t swap_used_kb,
 	return -ENOENT;
 }
 
+static ssize_t render_thermal_file(const struct floral_cpu_profile *profile,
+				   const char *path, char *buffer, size_t size)
+{
+	const char *file = strrchr(path, '/');
+
+	if (!file)
+		return -ENOENT;
+	file++;
+	if (strcmp(file, "type") == 0)
+		return snprintf(buffer, size, "%s\n", profile->thermal_battery_name);
+	if (strcmp(file, "available_policies") == 0)
+		return snprintf(buffer, size, "user_space step_wise bang_bang \n");
+	if (strcmp(file, "passive") == 0 ||
+	    strcmp(file, "runtime_active_time") == 0 ||
+	    strcmp(file, "runtime_suspended_time") == 0)
+		return snprintf(buffer, size, "0\n");
+	if (strcmp(file, "policy") == 0)
+		return snprintf(buffer, size, "step_wise\n");
+	if (strcmp(file, "control") == 0)
+		return snprintf(buffer, size, "auto\n");
+	if (strcmp(file, "runtime_status") == 0)
+		return snprintf(buffer, size, "unsupported\n");
+	if (strcmp(file, "temp") == 0) {
+		/* A slow triangular drift avoids exposing a frozen magic value. */
+		time_t now = time(NULL);
+		int phase = now < 0 ? 0 : (int)(now % 120);
+		int drift = phase <= 60 ? phase * 400 / 60 - 200 :
+						(120 - phase) * 400 / 60 - 200;
+		int temperature =
+			(int)(profile->thermal_ambient_celsius * 1000.0f) + 3000 + drift;
+		return snprintf(buffer, size, "%d\n", temperature);
+	}
+	if (strcmp(file, "integral_cutoff") == 0 || strcmp(file, "k_d") == 0 ||
+	    strcmp(file, "k_i") == 0 || strcmp(file, "k_po") == 0 ||
+	    strcmp(file, "k_pu") == 0 || strcmp(file, "offset") == 0 ||
+	    strcmp(file, "slope") == 0 || strcmp(file, "sustainable_power") == 0 ||
+	    strcmp(file, "autosuspend_delay_ms") == 0 || strcmp(file, "uevent") == 0)
+		return 0;
+	return -ENOENT;
+}
+
+ssize_t floral_render_sys_symlink(const struct floral_cpu_profile *profile,
+				  int cpu_count, const char *path,
+				  char *buffer, size_t size)
+{
+	if (!buffer || !size ||
+	    floral_sys_node_type(profile, cpu_count, path) != FLORAL_SYS_SYMLINK)
+		return -ENOENT;
+	if (strcmp(path, FLORAL_CLASS_THERMAL_SYS_PREFIX "/thermal_zone0") == 0)
+		return snprintf(buffer, size,
+				"../../devices/virtual/thermal/thermal_zone0");
+	if (strcmp(path, FLORAL_THERMAL_SYS_PREFIX "/thermal_zone0/subsystem") == 0)
+		return snprintf(buffer, size, "../../../../class/thermal");
+	return -ENOENT;
+}
+
 ssize_t floral_render_sys_file(const struct floral_cpu_profile *profile,
 			       int cpu_count, const char *path,
 			       char *buffer, size_t size)
@@ -932,6 +1096,9 @@ ssize_t floral_render_sys_file_with_memory_and_swap(
 
 		return value ? snprintf(buffer, size, "%s\n", value) : -ENOENT;
 	}
+	if (strncmp(path, FLORAL_THERMAL_SYS_PREFIX "/thermal_zone0/",
+		    strlen(FLORAL_THERMAL_SYS_PREFIX "/thermal_zone0/")) == 0)
+		return render_thermal_file(profile, path, buffer, size);
 	if (strcmp(path, FLORAL_NODE_SYS_PREFIX) == 0 ||
 	    strncmp(path, FLORAL_NODE_SYS_PREFIX "/",
 		    strlen(FLORAL_NODE_SYS_PREFIX "/")) == 0)

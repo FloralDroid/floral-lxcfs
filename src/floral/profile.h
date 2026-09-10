@@ -12,8 +12,8 @@
 
 struct lxcfs_opts;
 
-#define FLORAL_PROFILE_MAX_SIZE 8192
-#define FLORAL_PROFILE_VALUE_MAX 512
+#define FLORAL_PROFILE_MAX_SIZE (16 * 1024)
+#define FLORAL_PROFILE_VALUE_MAX 257
 
 struct floral_dmi_profile {
 	char manufacturer[FLORAL_PROFILE_VALUE_MAX];
@@ -33,13 +33,15 @@ struct floral_cpu_profile {
 	char soc_model[FLORAL_PROFILE_VALUE_MAX];
 	char kernel_release[FLORAL_PROFILE_VALUE_MAX];
 	char kernel_version[FLORAL_PROFILE_VALUE_MAX];
+	float thermal_ambient_celsius;
+	char thermal_battery_name[FLORAL_PROFILE_VALUE_MAX];
 	struct floral_dmi_profile dmi;
 };
 
 int floral_profile_parse(char *data, struct floral_cpu_profile *profile);
 int floral_profile_load(pid_t initpid, const struct lxcfs_opts *opts,
 			struct floral_cpu_profile *profile);
-void floral_profile_set_default_dmi_identity(struct floral_cpu_profile *profile);
+void floral_profile_set_default_identity(struct floral_cpu_profile *profile);
 bool floral_profile_has_cpu_identity(const struct floral_cpu_profile *profile);
 bool floral_profile_has_kernel_identity(const struct floral_cpu_profile *profile);
 bool floral_profile_has_dmi_identity(const struct floral_cpu_profile *profile);
