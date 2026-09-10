@@ -35,6 +35,9 @@ such as:
 /sys/devices/system/cpu/online
 /sys/devices/system/node/node0/meminfo
 /sys/devices/virtual/dmi/id
+/sys/devices/virtual/thermal/thermal_zone0
+/sys/class/thermal/thermal_zone0
+/sys/class/hwmon
 /sys/block/zram0
 ```
 
@@ -126,6 +129,9 @@ docker run --rm -it \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/system/cpu,dst=/sys/devices/system/cpu,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/block,dst=/sys/block,readonly \
       --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/virtual/dmi/id,dst=/sys/devices/virtual/dmi/id,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/devices/virtual/thermal,dst=/sys/devices/virtual/thermal,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/class/thermal,dst=/sys/class/thermal,readonly \
+      --mount type=bind,src=/var/lib/floral-lxcfs/sys/class/hwmon,dst=/sys/class/hwmon,readonly \
       ubuntu:24.04 /bin/bash
 ```
 
@@ -139,7 +145,11 @@ cgroup v2 and the legacy cpuacct counters on cgroup v1. Docker stats also uses
 the cgroup accounting, while its percentage denominator remains Docker's own
 host/online-CPU calculation. /sys/block/zram0 is a read-only synthetic
 capacity view derived from the container swap budget; it is not a host zram
-passthrough.
+passthrough. The thermal view contains one profile-backed battery device with
+the standard governor and power attributes. Its thermal class entry is a
+relative symlink to that device, matching the kernel sysfs object model. The
+hwmon class is valid but empty, preventing host CPU or GPU temperature devices
+from appearing through class or provider paths.
 
  In a system with swap enabled, the parameter "-u" can be used to set all values in "meminfo" that refer to the swap to 0.
 

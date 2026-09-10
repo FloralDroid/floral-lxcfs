@@ -79,19 +79,22 @@ the existing per-container profile at:
 
 The path is resolved beneath the requesting container's root. Every directory
 component is opened without following symlinks, the final object must be a
-regular file, and the file is limited to 8 KiB. A different in-container path
+regular file, and the file is limited to 16 KiB. A different in-container path
 can be selected with `--device-profile=/absolute/path` or at build time with
 `-Ddevice-profile-path=/absolute/path`.
 
-The file remains a complete AOSP identity profile. Floral LXCFS ignores keys
-that it does not consume and additionally reads CPU, kernel and DMI identity
+The file remains a complete AOSP identity profile. Floral LXCFS validates the
+same required fields and duplicate-key rules, accepts keys it does not consume,
+and additionally reads CPU, kernel, DMI and thermal identity
 from the same file. See `examples/device.prop` and
 `examples/device.oppo-find-x6-pro.prop` for complete shared profiles. For the
-current OPPO Find X6 Pro profile, `version` and `soc_model` are sufficient to
-select the built-in CPU view. The following keys are optional LXCFS overrides:
+current OPPO PGEM10 profile, `soc_model` selects the built-in CPU view. The
+following keys are optional LXCFS overrides in addition to the required shared
+profile fields:
 
 ```properties
 version=1
+hardware=qcom
 soc_model=SM8550
 cpu_vendor=Qualcomm
 cpu_model=ARMv8 Processor rev 1 (v8l)
@@ -100,7 +103,13 @@ cpu_feature_view=sm8550
 cpu_cores=auto
 kernel_release=5.10.66-android12-9
 kernel_version=#1 SMP PREEMPT Mon Feb 7 12:00:00 UTC 2022
+thermal_ambient_celsius=22.0
+thermal_battery_name=battery
 ```
+
+The optional `hardware` field supplies Android's public `ro.hardware` and
+`Build.HARDWARE`. It identifies the HAL platform family (`qcom` here), not the
+SoC model; LXCFS does not use it to select a CPU template.
 
 `soc_model=SM8550` automatically selects the same built-in template as
 `cpu_feature_view=sm8550`; the explicit view field is useful when the public
@@ -111,6 +120,17 @@ SoC name and the CPU topology template differ. `cpu_vendor`, `cpu_model`, and
 `kernel_release` and `kernel_version` provide the file-backed
 `/proc/sys/kernel/osrelease` and `/proc/version` views. If a valid value is not
 available for a path, that path falls back to the host view.
+
+Floral exposes one self-contained battery device at
+`/sys/devices/virtual/thermal/thermal_zone0`. Its `type` comes from
+`thermal_battery_name`; its temperature slowly varies around
+`thermal_ambient_celsius + 3 C`. The device includes the standard thermal
+governor, passive threshold, tuning, power and subsystem entries. The
+`/sys/class/thermal/thermal_zone0` entry is a relative symlink to that device,
+so class traversal, `readlink` and canonical path resolution agree.
+`/sys/class/hwmon` is a valid empty class. The Android mount helper also masks
+the discovered host hwmon provider directories, preventing direct provider
+paths from exposing host CPU or GPU temperature devices.
 
 The canonical DMI directory is `/sys/devices/virtual/dmi/id`. Floral maps only
 these newline-terminated, read-only files:

@@ -24,6 +24,7 @@ enum floral_sys_node_type {
 	FLORAL_SYS_NONE,
 	FLORAL_SYS_DIRECTORY,
 	FLORAL_SYS_FILE,
+	FLORAL_SYS_SYMLINK,
 };
 
 typedef int (*floral_sys_emit_t)(void *context, const char *name);
@@ -46,5 +47,8 @@ ssize_t floral_render_sys_file_with_memory_and_swap(
 					   uint64_t memory_free_kb, uint64_t swap_total_kb,
 					   uint64_t swap_used_kb, const char *path,
 					   char *buffer, size_t size);
+ssize_t floral_render_sys_symlink(const struct floral_cpu_profile *profile,
+				  int cpu_count, const char *path,
+				  char *buffer, size_t size);
 
 #endif /* __LXCFS_FLORAL_VIEW_H */
